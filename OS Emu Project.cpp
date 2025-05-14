@@ -52,21 +52,21 @@ int main()
         }
         else if (inputCommand.find("scheduler-stop") != std::string::npos) {
             std::cout << "scheduler-stop command recognized. Doing something. \n";
-            // something do
+            // do something
         }
         else if (inputCommand.find("report-util") != std::string::npos) {
             std::cout << "report-util command recognized. Doing something. \n";
-            // dothing some
+            // do something
         }
         else if (inputCommand == "clear") {
-            system("cls"); //i wanted to avoid but the escape sequence doesnt clear
-            //std::cout << "\033[2J\033[1;1H"; //not really clearing
+            system("cls"); //"unsafe" to use? 
+            //std::cout << "\033[2J\033[1;1H"; //not really clearing, just moving the scroll to look like it cleared
             dispHeader();
         }
         else if (inputCommand == "exit") {
             menuState = false;
         }
-        else if (inputCommand == "-help") {
+        else if (inputCommand == "-help") { // small add-on lang to display commands
             std::cout << "initialize, screen, scheduler-test, scheduler-stop, report-util, clear, and exit.\n";
         }
         else {
