@@ -52,7 +52,6 @@ std::string getCurrentTimestamp() {
 void displayScreen(const ScreenSession &session) {
     system("cls");
     setTextColor(36);
-    std::cout << "=== Screen Session: " << session.name << " ===\n";
     defaultColor();
     std::cout << "Process name: " << session.name << "\n";
     std::cout << "Instruction: Line " << session.currentLine << " / " << session.totalLines << "\n";
