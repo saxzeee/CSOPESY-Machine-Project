@@ -1,6 +1,7 @@
 Members: 
 Jacy Nate S. Liu
 Jeff Uriel V. Fonte
+Peter Benjamin A. Tan
 
 Instructions:
 OS_Emu_Project.cpp is the entry point — it contains the main() function.
