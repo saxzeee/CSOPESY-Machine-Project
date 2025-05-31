@@ -1,5 +1,4 @@
 Members: 
-Jacy Nate S. Liu
 Jeff Uriel V. Fonte
 
 Instructions:
