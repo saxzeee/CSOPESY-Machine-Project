@@ -1,6 +1,7 @@
 Members: 
 Jacy Nate S. Liu
 Jeff Uriel V. Fonte
+John Alphons A. Elazegui
 Peter Benjamin A. Tan
 
 Instructions:
