@@ -26,7 +26,9 @@ struct Process {
     int totalCommands;
     int executedCommands;
     bool finished;
+    std::string finishTimestamp;
 };
+
 
 // global variables for process
 std::vector<Process> processList;
@@ -112,7 +114,7 @@ void screenLoop(ScreenSession &session) {
 
 // CPU worker function
 void cpuWorker(int coreID) {
-    while (schedulerRunning) {
+    while (true) {
         processMutex.lock();
         int procIndex = -1;
         for (int i = 0; i < processList.size(); i++) {
@@ -124,35 +126,42 @@ void cpuWorker(int coreID) {
         processMutex.unlock();
 
         if (procIndex == -1) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            if (!schedulerRunning) break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
             continue;
         }
 
-        processMutex.lock();
-        Process &proc = processList[procIndex];
-        proc.executedCommands++;
-        int cmdNum = proc.executedCommands;
-        if (proc.executedCommands == proc.totalCommands) {
-            proc.finished = true;
-            finishedProcesses.push_back(procIndex);
+        // Copy data we need outside the lock to avoid holding it during I/O
+        std::string procName;
+        bool justFinished = false;
+        {
+            std::lock_guard<std::mutex> lock(processMutex);
+            Process &proc = processList[procIndex];
+
+            // Log before increment
+            std::string filename = proc.name + ".txt";
+            std::ofstream outfile(filename, std::ios::app);
+            outfile << "(" << getCurrentTimestamp() << ") "
+                    << "Core:" << (coreID - 1) << " "
+                    << "\"Hello world from " << proc.name << "!\"" << std::endl;
+            outfile.close();
+
+            proc.executedCommands++;
+            procName = proc.name;
+
+            if (proc.executedCommands == proc.totalCommands) {
+                proc.finished = true;
+                proc.finishTimestamp = getCurrentTimestamp();
+                finishedProcesses.push_back(procIndex);
+                justFinished = true;
+            }
         }
-        processMutex.unlock();
 
-        std::string filename = proc.name + ".txt";
-
-        std::ifstream infile(filename);
-        bool isEmpty = infile.peek() == std::ifstream::traits_type::eof();
-        infile.close();
-
-        std::ofstream outfile(filename, std::ios::app);
-        outfile << "(" << getCurrentTimestamp() << ") "
-                << "Core:" << (coreID - 1) << " "
-                << "\"Hello world from " << proc.name << "!\"" << std::endl;
-        outfile.close();
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 }
+
+
 
 // scheduler
 void scheduler() {
@@ -192,7 +201,7 @@ void showScreenLS() {
     for (int i = 0; i < processList.size(); i++) {
         if (processList[i].finished) {
             std::cout << std::setw(nameWidth) << processList[i].name << "  ";
-            std::cout << "(" << getCurrentTimestamp() << ")  ";
+            std::cout << "(" << processList[i].finishTimestamp << ")  ";
             std::cout << "Finished  ";
             std::cout << processList[i].executedCommands << " / " << processList[i].totalCommands << "\n";
         }
@@ -273,8 +282,14 @@ int main() {
             dispHeader();
         }
         else if (inputCommand == "exit") {
-            menuState = false;
-        }
+		    menuState = false;
+		    std::cout << "Waiting for all processes to finish...\n";
+		    schedThread.join();
+		    for (int i = 0; i < cpuThreads.size(); i++) {
+		        cpuThreads[i].join();
+		    }
+		    std::cout << "All processes finished. Exiting emulator.\n";
+		}
         else if (inputCommand == "-help") {
             std::cout << "Available commands:\n";
             std::cout << "  initialize, screen -s <name>, screen -r <name>, screen -ls\n";
@@ -289,14 +304,5 @@ int main() {
 
         inputCommand = "";
     }
-
-    // stop scheduler
-    schedulerRunning = false;
-    for (int i = 0; i < cpuThreads.size(); i++) {
-        cpuThreads[i].join();
-    }
-    schedThread.join();
-
-    std::cout << "Emulator finished. Check the process text files for output.\n";
     return 0;
 }
