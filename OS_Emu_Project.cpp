@@ -115,7 +115,6 @@ void cpuWorker(int coreID) {
     while (schedulerRunning) {
         processMutex.lock();
         int procIndex = -1;
-        // Find the next unfinished process
         for (int i = 0; i < processList.size(); i++) {
             if (!processList[i].finished && processList[i].executedCommands < processList[i].totalCommands) {
                 procIndex = i;
@@ -140,10 +139,15 @@ void cpuWorker(int coreID) {
         processMutex.unlock();
 
         std::string filename = proc.name + ".txt";
-        std::ofstream outfile;
-        outfile.open(filename, std::ios::app);
-        outfile << "Print command " << cmdNum << " executed at " << getCurrentTimestamp()
-                << " by CPU Core " << coreID << std::endl;
+
+        std::ifstream infile(filename);
+        bool isEmpty = infile.peek() == std::ifstream::traits_type::eof();
+        infile.close();
+
+        std::ofstream outfile(filename, std::ios::app);
+        outfile << "(" << getCurrentTimestamp() << ") "
+                << "Core:" << (coreID - 1) << " "
+                << "\"Hello world from " << proc.name << "!\"" << std::endl;
         outfile.close();
 
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
@@ -171,19 +175,29 @@ void scheduler() {
 // show process status
 void showScreenLS() {
     processMutex.lock();
+    std::cout << std::left; // Align text to the left
+    int nameWidth = 12; 
+
+    std::cout << "---------------------------------------------\n";
     std::cout << "Running processes:\n";
     for (int i = 0; i < processList.size(); i++) {
         if (!processList[i].finished) {
-            std::cout << "  " << processList[i].name << " (" << processList[i].executedCommands
-                      << "/" << processList[i].totalCommands << ")\n";
+            std::cout << std::setw(nameWidth) << processList[i].name << "  ";
+            std::cout << "(" << getCurrentTimestamp() << ")  ";
+            std::cout << "Core: " << (i % 4) << "  ";
+            std::cout << processList[i].executedCommands << " / " << processList[i].totalCommands << "\n";
         }
     }
-    std::cout << "Finished processes:\n";
+    std::cout << "\nFinished processes:\n";
     for (int i = 0; i < processList.size(); i++) {
         if (processList[i].finished) {
-            std::cout << "  " << processList[i].name << "\n";
+            std::cout << std::setw(nameWidth) << processList[i].name << "  ";
+            std::cout << "(" << getCurrentTimestamp() << ")  ";
+            std::cout << "Finished  ";
+            std::cout << processList[i].executedCommands << " / " << processList[i].totalCommands << "\n";
         }
     }
+    std::cout << "---------------------------------------------\n";
     processMutex.unlock();
 }
 
@@ -202,6 +216,15 @@ int main() {
         proc.executedCommands = 0;
         proc.finished = false;
         processList.push_back(proc);
+    }
+
+    // for the headers
+    for (auto& proc : processList) {
+        std::string filename = proc.name + ".txt";
+        std::ofstream outfile(filename, std::ios::trunc);
+        outfile << "Process name: " << proc.name << std::endl;
+        outfile << "Logs:" << std::endl << std::endl;
+        outfile.close();
     }
 
     std::vector<std::thread> cpuThreads;
