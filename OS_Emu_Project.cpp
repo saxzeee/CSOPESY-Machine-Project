@@ -68,7 +68,7 @@ _/              _/  _/    _/  _/        _/              _/      _/
     defaultColor();
 }
 
-// Get current time as formatted string
+// get current time as formatted string
 std::string getCurrentTimestamp() {
     time_t now = time(0);
     tm *ltm = localtime(&now);
@@ -109,7 +109,7 @@ void screenLoop(ScreenSession &session) {
     }
 }
 
-// CPU Worker function
+// CPU worker function
 void cpuWorker(int coreID) {
     while (schedulerRunning) {
         processMutex.lock();
@@ -153,7 +153,7 @@ void cpuWorker(int coreID) {
     }
 }
 
-// Scheduler function (not strictly needed for FCFS, but for demonstration)
+// scheduler
 void scheduler() {
     // Just waits for all processes to finish
     while (true) {
@@ -172,7 +172,7 @@ void scheduler() {
     schedulerRunning = false;
 }
 
-// Show process status
+// show process status
 void showScreenLS() {
     processMutex.lock();
     std::cout << "Running processes:\n";
@@ -198,7 +198,7 @@ int main() {
 
     dispHeader();
 
-    // 1. Create 10 processes, each with 100 print commands
+    // create 10 processes with 100 print commands
     for (int i = 1; i <= 10; i++) {
         Process proc;
         proc.name = "process_" + std::to_string(i);
@@ -208,13 +208,13 @@ int main() {
         processList.push_back(proc);
     }
 
-    // 2. Start 4 CPU worker threads
+    // start 4 CPU worker threads
     std::vector<std::thread> cpuThreads;
     for (int i = 1; i <= 4; i++) {
         cpuThreads.push_back(std::thread(cpuWorker, i));
     }
 
-    // 3. Start scheduler thread
+    // start scheduler thread
     std::thread schedThread(scheduler);
 
     while (menuState) {
@@ -273,7 +273,7 @@ int main() {
         inputCommand = "";
     }
 
-    // 5. Wait for all threads to finish
+    // stop scheduler
     schedulerRunning = false;
     for (int i = 0; i < cpuThreads.size(); i++) {
         cpuThreads[i].join();
