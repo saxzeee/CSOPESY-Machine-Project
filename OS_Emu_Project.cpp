@@ -20,7 +20,7 @@ struct ScreenSession {
     std::string timestamp;
 };
 
-// Process structure for simulation
+// struct for process
 struct Process {
     std::string name;
     int totalCommands;
@@ -28,7 +28,7 @@ struct Process {
     bool finished;
 };
 
-// Global variables for process simulation
+// global variables for process
 std::vector<Process> processList;
 std::vector<int> finishedProcesses;
 std::mutex processMutex;
@@ -69,7 +69,7 @@ _/              _/  _/    _/  _/        _/              _/      _/
     defaultColor();
 }
 
-// get current time as formatted string
+// get current timestamp
 std::string getCurrentTimestamp() {
     time_t now = time(0);
     tm *ltm = localtime(&now);
@@ -125,12 +125,10 @@ void cpuWorker(int coreID) {
         processMutex.unlock();
 
         if (procIndex == -1) {
-            // No process to run, sleep a bit
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
             continue;
         }
 
-        // Simulate executing a print command
         processMutex.lock();
         Process &proc = processList[procIndex];
         proc.executedCommands++;
@@ -141,7 +139,6 @@ void cpuWorker(int coreID) {
         }
         processMutex.unlock();
 
-        // Write to process file
         std::string filename = proc.name + ".txt";
         std::ofstream outfile;
         outfile.open(filename, std::ios::app);
@@ -149,14 +146,12 @@ void cpuWorker(int coreID) {
                 << " by CPU Core " << coreID << std::endl;
         outfile.close();
 
-        // Simulate some work
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
 }
 
 // scheduler
 void scheduler() {
-    // Just waits for all processes to finish
     while (true) {
         processMutex.lock();
         bool allDone = true;
@@ -209,13 +204,11 @@ int main() {
         processList.push_back(proc);
     }
 
-    // start 4 CPU worker threads
     std::vector<std::thread> cpuThreads;
     for (int i = 1; i <= 4; i++) {
         cpuThreads.push_back(std::thread(cpuWorker, i));
     }
 
-    // start scheduler thread
     std::thread schedThread(scheduler);
 
     while (menuState) {
@@ -261,7 +254,7 @@ int main() {
         }
         else if (inputCommand == "-help") {
             std::cout << "Available commands:\n";
-            std::cout << "  initialize, screen -s <name>, screen -r <name>\n";
+            std::cout << "  initialize, screen -s <name>, screen -r <name>, screen -ls\n";
             std::cout << "  scheduler-test, scheduler-stop, report-util, clear, exit\n";
         }
         else if (inputCommand == "screen -ls") {
