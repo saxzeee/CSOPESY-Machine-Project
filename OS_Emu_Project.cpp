@@ -122,8 +122,8 @@ int main() {
                 std::cout << "No screen session named '" << name << "' exists.\n";
             }
         }
-        else if (inputCommand.find("scheduler-test") != std::string::npos) {
-            std::cout << "scheduler-test command recognized. Doing something.\n";
+        else if (inputCommand.find("scheduler-start") != std::string::npos) {
+            std::cout << "scheduler-start command recognized. Doing something.\n";
         }
         else if (inputCommand.find("scheduler-stop") != std::string::npos) {
             std::cout << "scheduler-stop command recognized. Doing something.\n";
@@ -139,9 +139,18 @@ int main() {
             menuState = false;
         }
         else if (inputCommand == "-help") {
-            std::cout << "Available commands:\n";
-            std::cout << "  initialize, screen -s <name>, screen -r <name>\n";
-            std::cout << "  scheduler-test, scheduler-stop, report-util, clear, exit\n";
+            std::cout <<    "Commands:\n" <<
+                            "  initialize       - Initialize the processor configuration with ""config.txt"".\n" <<                                             // not implemented
+                            "  screen -s <name> - Start a new screen session with a given name.\n" <<                                                           
+                            "  screen -r <name> - Resume an existing screen session with the given name.\n" <<
+                            "       process-smi - Prints information about the process (upon entering ""screen -s/-r"" command).\n" <<                          // not implemented
+                            "       exit        - Exit the screen session.\n" <<
+                            "  screen -ls       - Display CPU utilization, cores used, cores, available, and summary of running and finished processes" <<      // not implemented
+                            "  scheduler-start  - Generate a batch of dummy processes for the CPU scheduler.\n" <<                                              // not implemented
+                            "  scheduler-stop   - Stop generating dummy processes.\n" <<                                                                        // not implemented
+                            "  report-util      - Generate a report of CPU utilization.\n" <<                                                                   // not implemented      
+                            "  clear            - Clear the screen.\n" <<
+                            "  exit             - Exit the emulator.\n";
         }
         else {
             std::cout << "Command not recognized. Type '-help' to display commands.\n";
