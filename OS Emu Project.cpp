@@ -12,6 +12,7 @@
 #include <thread>
 #include <mutex>
 #include <chrono>
+#include <memory>
 
 // Struct to hold screen session data
 struct ScreenSession {
@@ -21,7 +22,7 @@ struct ScreenSession {
     std::string timestamp;
 };
 
-// Struct for process
+// Struct for process -> refactor into class? 
 struct Process {
     std::string name;
     int totalCommands;
@@ -48,37 +49,9 @@ private:
     std::vector<int> finishedProcesses;
     std::mutex processMutex;
     bool schedulerRunning;
+    std::thread schedulerMain;
+    std::map<std::string, ScreenSession>* screenSessions = nullptr;
 
-public:
-    unsigned int numCores;
-    std::string algorithm;
-    uint32_t quantumCycles;
-    uint32_t batchProcFreq;
-    uint32_t minIns;
-    uint32_t maxIns;
-    uint32_t delayPerExec;
-
-    Scheduler() : schedulerRunning(true) {}
-
-    void addProcess(const Process& process) {
-        processList.push_back(process);
-    }
-
-    void startScheduler() {
-        std::vector<std::thread> cpuThreads;
-        for (int i = 1; i <= numCores; i++) {
-            cpuThreads.push_back(std::thread(&Scheduler::cpuWorker, this, i));
-        }
-
-        std::thread schedThread(&Scheduler::scheduler, this);
-
-        schedThread.join();
-        for (int i = 0; i < cpuThreads.size(); i++) {
-            cpuThreads[i].join();
-        }
-    }
-
-private:
     void cpuWorker(int coreID) {
         while (true) {
             processMutex.lock();
@@ -115,6 +88,13 @@ private:
                 proc.executedCommands++;
                 procName = proc.name;
 
+                if (screenSessions) {
+                    auto it = screenSessions->find(proc.name);
+                    if (it != screenSessions->end()) {
+                        it->second.currentLine = proc.executedCommands;
+                    }
+                }
+
                 if (proc.executedCommands == proc.totalCommands) {
                     proc.finished = true;
                     proc.finishTimestamp = getCurrentTimestamp();
@@ -126,7 +106,7 @@ private:
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
-
+    // ediot
     void scheduler() {
         while (true) {
             processMutex.lock();
@@ -152,6 +132,114 @@ private:
         oss << std::put_time(&ltm, "%m/%d/%Y, %I:%M:%S %p");
         return oss.str();
     }
+
+public:
+    unsigned int numCores;
+    std::string algorithm;
+    uint32_t quantumCycles;
+    uint32_t batchProcFreq;
+    uint32_t minIns;
+    uint32_t maxIns;
+    uint32_t delayPerExec;
+
+    Scheduler(const schedConfig& config) {
+        numCores = config.numCores;
+        algorithm = config.algorithm;
+        quantumCycles = config.quantumCycles;
+        batchProcFreq = config.batchProcFreq;
+        minIns = config.minIns;
+        maxIns = config.maxIns;
+        delayPerExec = config.delayPerExec;
+    }
+
+    void addProcess(const Process& process) {
+        processList.push_back(process);
+    }
+
+    void startScheduler() {
+        if (schedulerRunning) {
+            std::cout << "Scheduler already running.\n";
+            return;
+        }
+        schedulerRunning = true;
+        schedulerMain = std::thread(&Scheduler::runScheduler, this);
+    }
+
+    void runScheduler() {
+        // create 10 dummy processes with 100 print commands (for testing)
+        for (int i = 1; i <= 10; i++) {
+            Process proc;
+            proc.name = "process" + std::to_string(i);
+            proc.totalCommands = 100;
+            proc.executedCommands = 0;
+            proc.finished = false;
+            processList.push_back(proc);
+
+            if (screenSessions) {
+                std::lock_guard<std::mutex> lock(processMutex);
+                (*screenSessions)[proc.name] = {
+                    proc.name, 1, proc.totalCommands, getCurrentTimestamp()
+                };
+            }
+        }
+
+        std::vector<std::thread> cpuThreads;
+        for (int i = 1; i <= numCores; i++) {
+            cpuThreads.push_back(std::thread(&Scheduler::cpuWorker, this, i));
+        }
+
+        std::thread schedThread(&Scheduler::scheduler, this);
+
+        schedThread.join();
+        for (int i = 0; i < cpuThreads.size(); i++) {
+            cpuThreads[i].join();
+        }
+
+    }
+    void printConfig() const { // display config for verifying if it creates and assigns attributes correctly
+        std::cout << "---- Scheduler Configuration ----\n";
+        std::cout << "Number of CPU Cores   : " << numCores << "\n";
+        std::cout << "Scheduling Algorithm  : " << algorithm << "\n";
+        std::cout << "Quantum Cycles        : " << quantumCycles << "\n";
+        std::cout << "Batch Process Freq    : " << batchProcFreq << "\n";
+        std::cout << "Min Instructions      : " << minIns << "\n";
+        std::cout << "Max Instructions      : " << maxIns << "\n";
+        std::cout << "Delay per Execution   : " << delayPerExec << "\n";
+        std::cout << "----------------------------------\n";
+    }
+
+    // show process status
+    void showScreenLS() {
+        processMutex.lock();
+        std::cout << std::left; // Align text to the left
+        int nameWidth = 12;
+
+        std::cout << "---------------------------------------------\n";
+        std::cout << "Running processes:\n";
+        for (int i = 0; i < processList.size(); i++) {
+            if (!processList[i].finished) {
+                std::cout << std::setw(nameWidth) << processList[i].name << "  ";
+                std::cout << "(" << getCurrentTimestamp() << ")  ";
+                std::cout << "Core: " << (i % 4) << "  ";
+                std::cout << processList[i].executedCommands << " / " << processList[i].totalCommands << "\n";
+            }
+        }
+        std::cout << "\nFinished processes:\n";
+        for (int i = 0; i < processList.size(); i++) {
+            if (processList[i].finished) {
+                std::cout << std::setw(nameWidth) << processList[i].name << "  ";
+                std::cout << "(" << processList[i].finishTimestamp << ")  ";
+                std::cout << "Finished  ";
+                std::cout << processList[i].executedCommands << " / " << processList[i].totalCommands << "\n";
+            }
+        }
+        std::cout << "---------------------------------------------\n";
+        processMutex.unlock();
+    }
+    void setScreenMap(std::map<std::string, ScreenSession>* screens) {
+        screenSessions = screens;
+     }
+    
 };
 // global variables for process
 std::vector<Process> processList;
@@ -237,34 +325,6 @@ void screenLoop(ScreenSession& session) {
     }
 }
 
-// show process status
-void showScreenLS() {
-    processMutex.lock();
-    std::cout << std::left; // Align text to the left
-    int nameWidth = 12;
-
-    std::cout << "---------------------------------------------\n";
-    std::cout << "Running processes:\n";
-    for (int i = 0; i < processList.size(); i++) {
-        if (!processList[i].finished) {
-            std::cout << std::setw(nameWidth) << processList[i].name << "  ";
-            std::cout << "(" << getCurrentTimestamp() << ")  ";
-            std::cout << "Core: " << (i % 4) << "  ";
-            std::cout << processList[i].executedCommands << " / " << processList[i].totalCommands << "\n";
-        }
-    }
-    std::cout << "\nFinished processes:\n";
-    for (int i = 0; i < processList.size(); i++) {
-        if (processList[i].finished) {
-            std::cout << std::setw(nameWidth) << processList[i].name << "  ";
-            std::cout << "(" << processList[i].finishTimestamp << ")  ";
-            std::cout << "Finished  ";
-            std::cout << processList[i].executedCommands << " / " << processList[i].totalCommands << "\n";
-        }
-    }
-    std::cout << "---------------------------------------------\n";
-    processMutex.unlock();
-}
 
 bool readConfigFile(std::string filePath, schedConfig* config) { //read the configs and edit the pased config struct that holds the details
     std::ifstream file(filePath);
@@ -312,6 +372,20 @@ bool readConfigFile(std::string filePath, schedConfig* config) { //read the conf
     }
     return true;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 int main() {
     bool menuState = true;
     bool initialized = false;
@@ -319,9 +393,7 @@ int main() {
     std::map<std::string, ScreenSession> screens;
     schedConfig config;
     dispHeader();
-
-    
-
+    std::unique_ptr<Scheduler> procScheduler; //unique ptr for process scheduler where it will be created & config will be assigned later, also unique_ptr for memory management
     // for the headers
     /* 
     for (auto& proc : processList) {
@@ -350,6 +422,9 @@ int main() {
             std::cout << "initialize command recognized. Doing something.\n";
             // initialize -> read config.txt file and setup scheduler details using the given config
             readConfigFile("config.txt", &config); 
+            procScheduler = std::make_unique<Scheduler>(config);
+            procScheduler->printConfig();
+            procScheduler->setScreenMap(&screens);
             initialized = true;
         }
         else if (inputCommand == "-help") {
@@ -401,10 +476,11 @@ int main() {
             }
         }
         else if (inputCommand.find("screen -ls") != std::string::npos) {
-            showScreenLS();
+            procScheduler->showScreenLS();
         }
         else if (inputCommand.find("scheduler-start") != std::string::npos) {
-            std::cout << "scheduler-start command recognized. Doing something.\n";
+            procScheduler->startScheduler();
+
         }
         else if (inputCommand.find("scheduler-stop") != std::string::npos) {
             std::cout << "scheduler-stop command recognized. Doing something.\n";
