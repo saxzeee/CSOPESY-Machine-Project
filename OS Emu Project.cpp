@@ -4,8 +4,7 @@
 #include <ctime>
 #include <iomanip>
 #include <sstream>
-#include <algorithm> // for transform()
-// for fcfs
+#include <algorithm>
 #include <vector>
 #include <fstream>
 #include <thread>
@@ -66,8 +65,6 @@ private:
     processState state;
 };
 
-
-
 // Base instruction interface
 class ICommand {
 public:
@@ -123,8 +120,7 @@ private:
 // ADD command
 class AddCommand : public ICommand {
 public:
-    AddCommand(int pid, const std::string& dest, const std::string& src1, const std::string& src2)
-        : ICommand(pid, ADD), dest(dest), src1(src1), src2(src2) {}
+    AddCommand(int pid, const std::string& dest, const std::string& src1, const std::string& src2) : ICommand(pid, ADD), dest(dest), src1(src1), src2(src2) {}
 
     void execute() override {
         // Simulate addition (fetch from symbol table, add, store result)
@@ -139,8 +135,7 @@ private:
 // SUBTRACT command
 class SubtractCommand : public ICommand {
 public:
-    SubtractCommand(int pid, const std::string& dest, const std::string& src1, const std::string& src2)
-        : ICommand(pid, SUBTRACT), dest(dest), src1(src1), src2(src2) {}
+    SubtractCommand(int pid, const std::string& dest, const std::string& src1, const std::string& src2) : ICommand(pid, SUBTRACT), dest(dest), src1(src1), src2(src2) {}
 
     void execute() override {
         std::cout << "PID " << pid << ": SUBTRACT " << dest << " = " << src1 << " - " << src2 << std::endl;
@@ -154,8 +149,7 @@ private:
 // SLEEP command
 class SleepCommand : public ICommand {
 public:
-    SleepCommand(int pid, uint8_t ticks)
-        : ICommand(pid, SLEEP), ticks(ticks) {}
+    SleepCommand(int pid, uint8_t ticks) : ICommand(pid, SLEEP), ticks(ticks) {}
 
     void execute() override {
         std::cout << "PID " << pid << ": SLEEP for " << (int)ticks << " ticks" << std::endl;
@@ -551,30 +545,6 @@ int main() {
     std::unique_ptr<Scheduler> procScheduler; //unique ptr for process scheduler where it will be created & config will be assigned later, also unique_ptr for memory management
 
     // Place this in main(), before your main loop, for quick testing
-
-    // Example: Test each instruction
-    
-    std::vector<ICommand*> testInstructions;
-    testInstructions.push_back(new PrintCommand(1, "Hello world from test process!"));
-    testInstructions.push_back(new DeclareCommand(1, "x", 42));
-    testInstructions.push_back(new AddCommand(1, "sum", "x", "10"));
-    testInstructions.push_back(new SubtractCommand(1, "diff", "x", "5"));
-    testInstructions.push_back(new SleepCommand(1, 3));
-
-    // FOR loop with 2 repeats of a print
-    std::vector<ICommand*> forBody;
-    forBody.push_back(new PrintCommand(1, "Inside FOR loop!"));
-    testInstructions.push_back(new ForCommand(1, forBody, 2));
-
-    // Execute all
-    for (auto* cmd : testInstructions) {
-        cmd->execute();
-    }
-
-    // Cleanup
-    for (auto* cmd : testInstructions) delete cmd;
-    for (auto* cmd : forBody) delete cmd;
-    
 
     /*
     for (auto& proc : processList) {
