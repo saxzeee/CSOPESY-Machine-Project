@@ -402,7 +402,8 @@ public:
     ICommand(int pid, CommandType type) : pid(pid), commandType(type) {}
     virtual ~ICommand() = default;
     CommandType getCommandType() { return commandType; }
-    virtual void execute() = 0;
+    // Pass symbol table to each execute
+    virtual void execute(std::map<std::string, uint16_t>& symbols, std::ostream& out = std::cout) = 0;
 
 protected:
     int pid;
@@ -412,28 +413,35 @@ protected:
 // PRINT command
 class PrintCommand : public ICommand {
 public:
-    PrintCommand(int pid, const std::string& toPrint) : ICommand(pid, PRINT), toPrint(toPrint) {}
+    // If varName is empty, just print msg. If not, print msg + value of varName.
+    PrintCommand(int pid, const std::string& msg, const std::string& varName = "")
+        : ICommand(pid, PRINT), msg(msg), varName(varName) {}
 
-    void execute() override {
-        // Simulate printing to the process's screen/log
-        std::cout << "PID " << pid << ": " << toPrint << std::endl;
+    void execute(std::map<std::string, uint16_t>& symbols, std::ostream& out = std::cout) override {
+        out << "PID " << pid << ": ";
+        if (!varName.empty()) {
+            uint16_t val = 0;
+            if (symbols.count(varName)) val = symbols[varName];
+            out << msg << val << std::endl;
+        } else {
+            out << msg << std::endl;
+        }
     }
 
 private:
-    std::string toPrint;
+    std::string msg;
+    std::string varName;
 };
 
 // DECLARE command
 class DeclareCommand : public ICommand {
 public:
     DeclareCommand(int pid, const std::string& varName, uint16_t value)
-        : ICommand(pid, DECLARE), varName(varName), value(value) {
-    }
+        : ICommand(pid, DECLARE), varName(varName), value(value) {}
 
-    void execute() override {
-        // Simulate variable declaration (store in process memory)
-        std::cout << "PID " << pid << ": DECLARE " << varName << " = " << value << std::endl;
-        // TODO: Actually store in process symbol table
+    void execute(std::map<std::string, uint16_t>& symbols, std::ostream& out = std::cout) override {
+        symbols[varName] = value;
+        out << "PID " << pid << ": DECLARE " << varName << " = " << value << std::endl;
     }
 
 private:
@@ -441,15 +449,29 @@ private:
     uint16_t value;
 };
 
+// Helper: get value from symbol table or parse as uint16_t
+inline uint16_t getVarOrValue(const std::string& s, std::map<std::string, uint16_t>& symbols) {
+    if (std::all_of(s.begin(), s.end(), ::isdigit)) {
+        return static_cast<uint16_t>(std::stoi(s));
+    }
+    // If not found, auto-declare as 0
+    if (!symbols.count(s)) symbols[s] = 0;
+    return symbols[s];
+}
+
 // ADD command
 class AddCommand : public ICommand {
 public:
-    AddCommand(int pid, const std::string& dest, const std::string& src1, const std::string& src2) : ICommand(pid, ADD), dest(dest), src1(src1), src2(src2) {}
+    AddCommand(int pid, const std::string& dest, const std::string& src1, const std::string& src2)
+        : ICommand(pid, ADD), dest(dest), src1(src1), src2(src2) {}
 
-    void execute() override {
-        // Simulate addition (fetch from symbol table, add, store result)
-        std::cout << "PID " << pid << ": ADD " << dest << " = " << src1 << " + " << src2 << std::endl;
-        // TODO: Actually perform addition and store in symbol table
+    void execute(std::map<std::string, uint16_t>& symbols, std::ostream& out = std::cout) override {
+        uint16_t v1 = getVarOrValue(src1, symbols);
+        uint16_t v2 = getVarOrValue(src2, symbols);
+        uint32_t sum = static_cast<uint32_t>(v1) + static_cast<uint32_t>(v2);
+        if (sum > 65535) sum = 65535; // clamp to uint16_t
+        symbols[dest] = static_cast<uint16_t>(sum);
+        out << "PID " << pid << ": ADD " << dest << " = " << v1 << " + " << v2 << " -> " << symbols[dest] << std::endl;
     }
 
 private:
@@ -459,11 +481,16 @@ private:
 // SUBTRACT command
 class SubtractCommand : public ICommand {
 public:
-    SubtractCommand(int pid, const std::string& dest, const std::string& src1, const std::string& src2) : ICommand(pid, SUBTRACT), dest(dest), src1(src1), src2(src2) {}
+    SubtractCommand(int pid, const std::string& dest, const std::string& src1, const std::string& src2)
+        : ICommand(pid, SUBTRACT), dest(dest), src1(src1), src2(src2) {}
 
-    void execute() override {
-        std::cout << "PID " << pid << ": SUBTRACT " << dest << " = " << src1 << " - " << src2 << std::endl;
-        // TODO: Actually perform subtraction and store in symbol table
+    void execute(std::map<std::string, uint16_t>& symbols, std::ostream& out = std::cout) override {
+        uint16_t v1 = getVarOrValue(src1, symbols);
+        uint16_t v2 = getVarOrValue(src2, symbols);
+        int32_t diff = static_cast<int32_t>(v1) - static_cast<int32_t>(v2);
+        if (diff < 0) diff = 0; // clamp to 0
+        symbols[dest] = static_cast<uint16_t>(diff);
+        out << "PID " << pid << ": SUBTRACT " << dest << " = " << v1 << " - " << v2 << " -> " << symbols[dest] << std::endl;
     }
 
 private:
@@ -475,33 +502,37 @@ class SleepCommand : public ICommand {
 public:
     SleepCommand(int pid, uint8_t ticks) : ICommand(pid, SLEEP), ticks(ticks) {}
 
-    void execute() override {
-        std::cout << "PID " << pid << ": SLEEP for " << (int)ticks << " ticks" << std::endl;
-        // TODO: Actually implement sleep logic in scheduler
+    void execute(std::map<std::string, uint16_t>&, std::ostream& out = std::cout) override {
+        out << "PID " << pid << ": SLEEP for " << (int)ticks << " ticks" << std::endl;
+        // Actual sleep logic should be handled by the scheduler
     }
 
 private:
     uint8_t ticks;
 };
 
-// FOR command (simplified)
+// FOR command (can be nested)
 class ForCommand : public ICommand {
 public:
-    ForCommand(int pid, std::vector<ICommand*> body, int repeats)
-        : ICommand(pid, FOR), body(body), repeats(repeats) {
+    ForCommand(int pid, std::vector<std::unique_ptr<ICommand>>& body, int repeats)
+        : ICommand(pid, FOR), repeats(repeats) {
+        // Deep copy/move the body
+        for (auto& cmd : body) {
+            body_.emplace_back(std::move(cmd));
+        }
     }
 
-    void execute() override {
-        std::cout << "PID " << pid << ": FOR loop x" << repeats << std::endl;
+    void execute(std::map<std::string, uint16_t>& symbols, std::ostream& out = std::cout) override {
+        out << "PID " << pid << ": FOR loop x" << repeats << std::endl;
         for (int i = 0; i < repeats; ++i) {
-            for (auto* cmd : body) {
-                cmd->execute();
+            for (auto& cmd : body_) {
+                cmd->execute(symbols, out);
             }
         }
     }
 
 private:
-    std::vector<ICommand*> body;
+    std::vector<std::unique_ptr<ICommand>> body_;
     int repeats;
 };
 
@@ -639,26 +670,39 @@ void handleHelp() {
               << "  exit             - Exit the emulator.\n";
 }
 
-void testCommands() {
-    int pid = 1;
-    PrintCommand printCmd(pid, "Hello world from test process!");
-    DeclareCommand declareCmd(pid, "x", 42);
-    AddCommand addCmd(pid, "x", "y", "z");
-    SubtractCommand subCmd(pid, "x", "y", "z");
-    SleepCommand sleepCmd(pid, 5);
+void simulateTwoProcesses() {
+    // Simulate two processes with their own symbol tables and instruction lists
+    int pid1 = 1, pid2 = 2;
+    std::map<std::string, uint16_t> symbols1, symbols2;
+    std::vector<std::unique_ptr<ICommand>> instructions1;
+    std::vector<std::unique_ptr<ICommand>> instructions2;
 
-    std::vector<ICommand*> cmds = { &printCmd, &declareCmd, &addCmd, &subCmd, &sleepCmd };
+    // Process 1 instructions
+    instructions1.emplace_back(std::make_unique<DeclareCommand>(pid1, "y", 33));
+    instructions1.emplace_back(std::make_unique<AddCommand>(pid1, "x", "y", "23")); // x = x + 5
+    instructions1.emplace_back(std::make_unique<PrintCommand>(pid1, "Value of y: ", "y"));
+    instructions1.emplace_back(std::make_unique<SleepCommand>(pid1, 2));
+    instructions1.emplace_back(std::make_unique<SubtractCommand>(pid1, "x", "y", "3")); // x = x - 3
+    instructions1.emplace_back(std::make_unique<PrintCommand>(pid1, "Final y: ", "y"));
 
-    // Test FOR command with 2 repeats
-    ForCommand forCmd(pid, cmds, 2);
+    // Process 2 instructions
+    instructions2.emplace_back(std::make_unique<DeclareCommand>(pid2, "y", 20));
+    instructions2.emplace_back(std::make_unique<AddCommand>(pid2, "y", "y", "7")); // y = y + 7
+    instructions2.emplace_back(std::make_unique<PrintCommand>(pid2, "Value of y: ", "y"));
+    instructions2.emplace_back(std::make_unique<SleepCommand>(pid2, 1));
+    instructions2.emplace_back(std::make_unique<SubtractCommand>(pid2, "y", "y", "15")); // y = y - 15
+    instructions2.emplace_back(std::make_unique<PrintCommand>(pid2, "Final y: ", "y"));
 
-    std::cout << "=== Testing individual commands ===\n";
-    for (auto* cmd : cmds) {
-        cmd->execute();
+    // Simulate running each process step by step
+    std::cout << "=== Simulating Process 1 ===\n";
+    for (auto& cmd : instructions1) {
+        cmd->execute(symbols1);
     }
 
-    std::cout << "\n=== Testing FOR command ===\n";
-    forCmd.execute();
+    std::cout << "\n=== Simulating Process 2 ===\n";
+    for (auto& cmd : instructions2) {
+        cmd->execute(symbols2);
+    }
 }
 
 int main() {
@@ -686,7 +730,9 @@ int main() {
 
     std::thread schedThread(scheduler);
     */
-    // testCommands(); // <-- Add this line to run the test at startup
+
+    simulateTwoProcesses();
+
     while (menuState) {
         std::cout << "\nEnter a command: ";
         std::getline(std::cin, inputCommand);
@@ -738,7 +784,7 @@ int main() {
         else if (inputCommand.find("report-util") != std::string::npos) {
             handleReportUtil();
         } else {
-            std::cout << "Command not recognized. Type '-help' to display commands.\n";
+            std::cout << "Command not recognized. Type ""-help"" to display commands.\n";
         }
         inputCommand = "";
     }
