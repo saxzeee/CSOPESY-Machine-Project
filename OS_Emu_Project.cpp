@@ -1,4 +1,3 @@
-
 #include <iostream>
 #include <string>
 #include <map>
@@ -631,6 +630,28 @@ void handleHelp() {
               << "  exit             - Exit the emulator.\n";
 }
 
+void testCommands() {
+    int pid = 1;
+    PrintCommand printCmd(pid, "Hello world from test process!");
+    DeclareCommand declareCmd(pid, "x", 42);
+    AddCommand addCmd(pid, "x", "y", "z");
+    SubtractCommand subCmd(pid, "x", "y", "z");
+    SleepCommand sleepCmd(pid, 5);
+
+    std::vector<ICommand*> cmds = { &printCmd, &declareCmd, &addCmd, &subCmd, &sleepCmd };
+
+    // Test FOR command with 2 repeats
+    ForCommand forCmd(pid, cmds, 2);
+
+    std::cout << "=== Testing individual commands ===\n";
+    for (auto* cmd : cmds) {
+        cmd->execute();
+    }
+
+    std::cout << "\n=== Testing FOR command ===\n";
+    forCmd.execute();
+}
+
 int main() {
     bool menuState = true;
     bool initialized = false;
@@ -656,6 +677,7 @@ int main() {
 
     std::thread schedThread(scheduler);
     */
+    testCommands(); // <-- Add this line to run the test at startup
     while (menuState) {
         std::cout << "\nEnter a command: ";
         std::getline(std::cin, inputCommand);
@@ -705,8 +727,7 @@ int main() {
         }
         else if (inputCommand.find("report-util") != std::string::npos) {
             handleReportUtil();
-        }
-        else {
+        } else {
             std::cout << "Command not recognized. Type '-help' to display commands.\n";
         }
         inputCommand = "";
