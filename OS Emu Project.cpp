@@ -106,6 +106,7 @@ private:
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
+    
     // ediot
     void scheduler() {
         while (true) {
@@ -373,19 +374,6 @@ bool readConfigFile(std::string filePath, schedConfig* config) { //read the conf
     return true;
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 int main() {
     bool menuState = true;
     bool initialized = false;
@@ -419,7 +407,6 @@ int main() {
         std::transform(inputCommand.begin(), inputCommand.end(), inputCommand.begin(), ::tolower);
 
         if (inputCommand.find("initialize") != std::string::npos) {
-            std::cout << "initialize command recognized. Doing something.\n";
             // initialize -> read config.txt file and setup scheduler details using the given config
             readConfigFile("config.txt", &config); 
             procScheduler = std::make_unique<Scheduler>(config);
