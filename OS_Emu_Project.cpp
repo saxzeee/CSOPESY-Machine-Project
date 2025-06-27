@@ -718,6 +718,7 @@ void handleHelp() {
               << "  exit             - Exit the emulator.\n";
 }
 
+// for testing processes
 // void simulateTwoProcesses() {
 //     // Simulate two processes with their own symbol tables and instruction lists
 //     int pid1 = 1, pid2 = 2;
