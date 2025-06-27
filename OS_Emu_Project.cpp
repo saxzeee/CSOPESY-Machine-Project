@@ -344,7 +344,6 @@ void screenLoop(ScreenSession& session) {
 }
 
 class ProcessTest {
-    Add commentMore actions
 public:
     struct RequirementFlags {
         bool requireFiles;
