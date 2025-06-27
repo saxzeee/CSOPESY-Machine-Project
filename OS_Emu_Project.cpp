@@ -245,7 +245,7 @@ public:
         std::uniform_int_distribution<> dist(minIns, maxIns);
         int processCounter = 1;
 
-        while (schedulerRunning && processCounter <= 10) {
+        while (schedulerRunning) {
             Process proc;
             proc.name = "process" + std::to_string(processCounter++);
             proc.totalCommands = dist(gen);  
