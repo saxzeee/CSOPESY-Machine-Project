@@ -20,6 +20,7 @@ struct ScreenSession {
     int currentLine;
     int totalLines;
     std::string timestamp;
+    std::vector<std::string> sessionHistory;
 };
 
 // Struct for process -> refactor into class? 
@@ -48,7 +49,7 @@ private:
     std::vector<Process> processList;
     std::vector<int> finishedProcesses;
     std::mutex processMutex;
-    bool schedulerRunning;
+    bool schedulerRunning = false;
     std::thread schedulerMain;
     std::map<std::string, ScreenSession>* screenSessions = nullptr;
 
@@ -56,7 +57,7 @@ private:
         while (true) {
             processMutex.lock();
             int procIndex = -1;
-            for (int i = 0; i < processList.size(); i++) {
+            for (size_t i = 0; i < processList.size(); i++) {
                 if (!processList[i].finished && processList[i].executedCommands < processList[i].totalCommands) {
                     procIndex = i;
                     break;
@@ -72,7 +73,6 @@ private:
 
             // Copy data we need outside the lock to avoid holding it during I/O
             std::string procName;
-            bool justFinished = false;
             {
                 std::lock_guard<std::mutex> lock(processMutex);
                 Process& proc = processList[procIndex];
@@ -99,20 +99,18 @@ private:
                     proc.finished = true;
                     proc.finishTimestamp = getCurrentTimestamp();
                     finishedProcesses.push_back(procIndex);
-                    justFinished = true;
                 }
             }
-
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
-    
-    // ediot
+
+    // edit
     void scheduler() {
         while (true) {
             processMutex.lock();
             bool allDone = true;
-            for (int i = 0; i < processList.size(); i++) {
+            for (size_t i = 0; i < processList.size(); i++) {
                 if (!processList[i].finished) {
                     allDone = false;
                     break;
@@ -176,6 +174,11 @@ public:
             proc.finished = false;
             processList.push_back(proc);
 
+            std::ofstream out(proc.name + ".txt", std::ios::trunc); //clears file so that it won't keep on writing over previous logs 
+            out << "Process name: " << proc.name << std::endl;
+            out << "Logs:" << std::endl << std::endl;
+            out.close();
+
             if (screenSessions) {
                 std::lock_guard<std::mutex> lock(processMutex);
                 (*screenSessions)[proc.name] = {
@@ -184,18 +187,25 @@ public:
             }
         }
 
+
         std::vector<std::thread> cpuThreads;
-        for (int i = 1; i <= numCores; i++) {
+        for (int i = 1; i <= static_cast<int>(numCores); i++) {
             cpuThreads.push_back(std::thread(&Scheduler::cpuWorker, this, i));
         }
 
         std::thread schedThread(&Scheduler::scheduler, this);
 
         schedThread.join();
-        for (int i = 0; i < cpuThreads.size(); i++) {
+        for (size_t i = 0; i < cpuThreads.size(); i++) {
             cpuThreads[i].join();
         }
 
+    }
+    void shutdown() {
+        schedulerRunning = false;
+        if (schedulerMain.joinable()) {
+            schedulerMain.join();
+        }
     }
     void printConfig() const { // display config for verifying if it creates and assigns attributes correctly
         std::cout << "---- Scheduler Configuration ----\n";
@@ -217,7 +227,7 @@ public:
 
         std::cout << "---------------------------------------------\n";
         std::cout << "Running processes:\n";
-        for (int i = 0; i < processList.size(); i++) {
+        for (size_t i = 0; i < processList.size(); i++) {
             if (!processList[i].finished) {
                 std::cout << std::setw(nameWidth) << processList[i].name << "  ";
                 std::cout << "(" << getCurrentTimestamp() << ")  ";
@@ -226,7 +236,7 @@ public:
             }
         }
         std::cout << "\nFinished processes:\n";
-        for (int i = 0; i < processList.size(); i++) {
+        for (size_t i = 0; i < processList.size(); i++) {
             if (processList[i].finished) {
                 std::cout << std::setw(nameWidth) << processList[i].name << "  ";
                 std::cout << "(" << processList[i].finishTimestamp << ")  ";
@@ -239,15 +249,13 @@ public:
     }
     void setScreenMap(std::map<std::string, ScreenSession>* screens) {
         screenSessions = screens;
-     }
-    
+    }
+
 };
 // global variables for process
 std::vector<Process> processList;
 std::vector<int> finishedProcesses;
 std::mutex processMutex;
-
-//bool schedulerRunning = true;
 
 // Cross-platform clear screen
 void clearScreen() {
@@ -302,6 +310,12 @@ void displayScreen(const ScreenSession& session) {
     std::cout << "Instruction: Line " << session.currentLine << " / " << session.totalLines << "\n";
     std::cout << "Created at: " << session.timestamp << "\n";
     defaultColor();
+
+    if (!session.sessionHistory.empty()) {
+        for (const auto& entry : session.sessionHistory) {
+            std::cout << entry << "\n";
+        }
+    }
     std::cout << "\n(Type 'exit' to return to the main menu)\n";
 }
 
@@ -318,10 +332,30 @@ void screenLoop(ScreenSession& session) {
             dispHeader();
             break;
         }
+        else if (input == "process-smi") {
+            std::stringstream ss;
+            std::string logFile = session.name + ".txt";
+            std::ifstream log(logFile);
+            if (log.is_open()) {
+                ss << "===== PROCESS INFO: " << session.name << " =====\n";
+                std::string line;
+                while (std::getline(log, line)) {
+                    ss << line << "\n";
+                }
+                log.close();
+            }
+            else {
+                ss << "No logs found for this process.\n";
+            }
 
-        // Simulate progressing through instructions
-        if (session.currentLine < session.totalLines) {
-            session.currentLine++;
+            // Check if finished
+            for (const auto& proc : processList) {
+                if (proc.name == session.name && proc.finished) {
+                    ss << "Finished!\n";
+                }
+            }
+
+            session.sessionHistory.push_back(ss.str());
         }
     }
 }
@@ -383,14 +417,14 @@ int main() {
     dispHeader();
     std::unique_ptr<Scheduler> procScheduler; //unique ptr for process scheduler where it will be created & config will be assigned later, also unique_ptr for memory management
     // for the headers
-    /* 
+    /*
     for (auto& proc : processList) {
         std::string filename = proc.name + ".txt";
         std::ofstream outfile(filename, std::ios::trunc);
         outfile << "Process name: " << proc.name << std::endl;
         outfile << "Logs:" << std::endl << std::endl;
         outfile.close();
-    } 
+    }
 
     std::vector<std::thread> cpuThreads;
     for (int i = 1; i <= 4; i++) {
@@ -408,7 +442,7 @@ int main() {
 
         if (inputCommand.find("initialize") != std::string::npos) {
             // initialize -> read config.txt file and setup scheduler details using the given config
-            readConfigFile("config.txt", &config); 
+            readConfigFile("config.txt", &config);
             procScheduler = std::make_unique<Scheduler>(config);
             procScheduler->printConfig();
             procScheduler->setScreenMap(&screens);
@@ -416,7 +450,7 @@ int main() {
         }
         else if (inputCommand == "-help") {
             std::cout << "Commands:\n" <<
-                "  initialize       - Initialize the processor configuration with ""config.txt"".\n" <<                                             
+                "  initialize       - Initialize the processor configuration with ""config.txt"".\n" <<
                 "  screen -s <name> - Start a new screen session with a given name.\n" <<
                 "  screen -r <name> - Resume an existing screen session with the given name.\n" <<
                 "       process-smi - Prints information about the process (upon entering ""screen -s/-r"" command).\n" <<                          // not implemented
@@ -434,33 +468,54 @@ int main() {
         }
         else if (inputCommand == "exit") {
             menuState = false;
-            /*
-            std::cout << "Waiting for all processes to finish...\n";
-            schedThread.join();
-            for (int i = 0; i < cpuThreads.size(); i++) {
-                cpuThreads[i].join();
+            if (procScheduler) {
+                procScheduler->shutdown();
             }
-            std::cout << "All processes finished. Exiting emulator.\n";
-            */
         }
         else if (!initialized) {
             std::cout << "Run the initialize command first before proceeding.\n";
         }
         else if (inputCommand.rfind("screen -s ", 0) == 0) {
             std::string name = inputCommand.substr(10);
-            if (screens.find(name) == screens.end()) {
-                screens[name] = { name, 1, 10, getCurrentTimestamp() };
+            if (screens.find(name) != screens.end()) {
+                std::cout << "Process with name '" << name << "' already exists.\n";
+                continue;
             }
+
+            // Create Process
+            Process proc;
+            proc.name = name;
+            proc.totalCommands = 10;  // Or randomize using minIns/maxIns
+            proc.executedCommands = 0;
+            proc.finished = false;
+
+            screens[name] = { name, 1, proc.totalCommands, getCurrentTimestamp() };
+            procScheduler->addProcess(proc);
+
             screenLoop(screens[name]);
         }
         else if (inputCommand.rfind("screen -r ", 0) == 0) {
             std::string name = inputCommand.substr(10);
-            if (screens.find(name) != screens.end()) {
-                screenLoop(screens[name]);
+            auto it = screens.find(name);
+            if (it == screens.end()) {
+                std::cout << "Process " << name << " not found.\n";
+                continue;
             }
-            else {
-                std::cout << "No screen session named '" << name << "' exists.\n";
+
+            // Check if the process has finished
+            bool isFinished = false;
+            for (const auto& proc : processList) {
+                if (proc.name == name && proc.finished) {
+                    isFinished = true;
+                    break;
+                }
             }
+            if (isFinished) {
+                std::cout << "Process " << name << " not found.\n";
+                continue;
+            }
+
+            screenLoop(it->second);
         }
         else if (inputCommand.find("screen -ls") != std::string::npos) {
             procScheduler->showScreenLS();
@@ -475,8 +530,8 @@ int main() {
         else if (inputCommand.find("report-util") != std::string::npos) {
             std::cout << "report-util command recognized. Doing something.\n";
         }
-        
-        
+
+
         else {
             std::cout << "Command not recognized. Type '-help' to display commands.\n";
         }
