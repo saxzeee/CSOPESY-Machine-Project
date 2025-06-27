@@ -5,8 +5,7 @@
 #include <ctime>
 #include <iomanip>
 #include <sstream>
-#include <algorithm> // for transform()
-// for fcfs
+#include <algorithm>
 #include <vector>
 #include <fstream>
 #include <thread>
