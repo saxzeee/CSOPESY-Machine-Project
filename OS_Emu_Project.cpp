@@ -344,6 +344,159 @@ void screenLoop(ScreenSession& session) {
     }
 }
 
+class ProcessTest {
+    Add commentMore actions
+public:
+    struct RequirementFlags {
+        bool requireFiles;
+        int numFiles;
+        bool requireMemory;
+        int memoryRequired;
+
+    };
+    enum processState {
+        Ready,
+        Running,
+        Waiting,
+        Finished,
+
+    };
+
+    enum DataType {
+        Integer,
+        Float,
+        Double,
+        String
+    };
+
+    struct Symbol {
+        DataType dtype;
+        std::string value;
+    };
+
+private:
+    int pid;
+    std::string name;
+    RequirementFlags requirements;
+    processState state;
+};
+
+// Base instruction interface
+class ICommand {
+public:
+    enum CommandType {
+        PRINT,
+        DECLARE,
+        ADD,
+        SUBTRACT,
+        SLEEP,
+        FOR
+    };
+    ICommand(int pid, CommandType type) : pid(pid), commandType(type) {}
+    virtual ~ICommand() = default;
+    CommandType getCommandType() { return commandType; }
+    virtual void execute() = 0;
+
+protected:
+    int pid;
+    CommandType commandType;
+};
+
+// PRINT command
+class PrintCommand : public ICommand {
+public:
+    PrintCommand(int pid, const std::string& toPrint) : ICommand(pid, PRINT), toPrint(toPrint) {}
+
+    void execute() override {
+        // Simulate printing to the process's screen/log
+        std::cout << "PID " << pid << ": " << toPrint << std::endl;
+    }
+
+private:
+    std::string toPrint;
+};
+
+// DECLARE command
+class DeclareCommand : public ICommand {
+public:
+    DeclareCommand(int pid, const std::string& varName, uint16_t value)
+        : ICommand(pid, DECLARE), varName(varName), value(value) {
+    }
+
+    void execute() override {
+        // Simulate variable declaration (store in process memory)
+        std::cout << "PID " << pid << ": DECLARE " << varName << " = " << value << std::endl;
+        // TODO: Actually store in process symbol table
+    }
+
+private:
+    std::string varName;
+    uint16_t value;
+};
+
+// ADD command
+class AddCommand : public ICommand {
+public:
+    AddCommand(int pid, const std::string& dest, const std::string& src1, const std::string& src2) : ICommand(pid, ADD), dest(dest), src1(src1), src2(src2) {}
+
+    void execute() override {
+        // Simulate addition (fetch from symbol table, add, store result)
+        std::cout << "PID " << pid << ": ADD " << dest << " = " << src1 << " + " << src2 << std::endl;
+        // TODO: Actually perform addition and store in symbol table
+    }
+
+private:
+    std::string dest, src1, src2;
+};
+
+// SUBTRACT command
+class SubtractCommand : public ICommand {
+public:
+    SubtractCommand(int pid, const std::string& dest, const std::string& src1, const std::string& src2) : ICommand(pid, SUBTRACT), dest(dest), src1(src1), src2(src2) {}
+
+    void execute() override {
+        std::cout << "PID " << pid << ": SUBTRACT " << dest << " = " << src1 << " - " << src2 << std::endl;
+        // TODO: Actually perform subtraction and store in symbol table
+    }
+
+private:
+    std::string dest, src1, src2;
+};
+
+// SLEEP command
+class SleepCommand : public ICommand {
+public:
+    SleepCommand(int pid, uint8_t ticks) : ICommand(pid, SLEEP), ticks(ticks) {}
+
+    void execute() override {
+        std::cout << "PID " << pid << ": SLEEP for " << (int)ticks << " ticks" << std::endl;
+        // TODO: Actually implement sleep logic in scheduler
+    }
+
+private:
+    uint8_t ticks;
+};
+
+// FOR command (simplified)
+class ForCommand : public ICommand {
+public:
+    ForCommand(int pid, std::vector<ICommand*> body, int repeats)
+        : ICommand(pid, FOR), body(body), repeats(repeats) {
+    }
+
+    void execute() override {
+        std::cout << "PID " << pid << ": FOR loop x" << repeats << std::endl;
+        for (int i = 0; i < repeats; ++i) {
+            for (auto* cmd : body) {
+                cmd->execute();
+            }
+        }
+    }
+
+private:
+    std::vector<ICommand*> body;
+    int repeats;
+};
 
 bool readConfigFile(std::string filePath, schedConfig* config) { //read the configs and edit the pased config struct that holds the details
     std::ifstream file(filePath);
