@@ -234,26 +234,34 @@ public:
         schedulerMain = std::thread(&Scheduler::runScheduler, this);
     }
 
+    bool isRunning() const {
+        return schedulerRunning;
+    }
+
     void runScheduler() {
         // create processes each X CPU ticks
         std::random_device rd;
         std::mt19937 gen(rd());
         std::uniform_int_distribution<> dist(minIns, maxIns);
-        for (int i = 1; i <= 10; i++) {
+        int processCounter = 1;
+
+        while (schedulerRunning && processCounter <= 10) {
             Process proc;
-            proc.name = "process" + std::to_string(i);
+            proc.name = "process" + std::to_string(processCounter++);
             proc.totalCommands = dist(gen);  
             proc.executedCommands = 0;
             proc.startTimestamp = getCurrentTimestamp(); 
             proc.finished = false;
-            processList.push_back(proc);
 
+            processMutex.lock();
+            processList.push_back(proc);
             if (screenSessions) {
-                std::lock_guard<std::mutex> lock(processMutex);
                 (*screenSessions)[proc.name] = {
                     proc.name, 1, proc.totalCommands, proc.startTimestamp
                 };
             }
+            processMutex.unlock();
+
             std::this_thread::sleep_for(std::chrono::milliseconds(batchProcFreq));
         }
 
@@ -695,8 +703,19 @@ void handleScreenR(const std::string& name, std::map<std::string, ScreenSession>
     screenLoop(it->second);
 }
 
-void handleSchedulerStop() {
-    std::cout << "scheduler-stop command recognized. (Not implemented)\n";
+void handleSchedulerStop(std::unique_ptr<Scheduler>& scheduler) {
+    if (!scheduler) {
+        std::cout << "Scheduler is not initialized.\n";
+        return;
+    }
+
+    if (!scheduler->isRunning()) {
+        std::cout << "Scheduler is not currently running.\n";
+        return;
+    }
+
+    scheduler->shutdown();
+    std::cout << "Scheduler stopped successfully.\n";
 }
 
 void handleReportUtil() {
@@ -826,7 +845,7 @@ int main() {
             procScheduler->startScheduler();
         }
         else if (inputCommand.find("scheduler-stop") != std::string::npos) {
-            handleSchedulerStop();
+            handleSchedulerStop(procScheduler);
         }
         else if (inputCommand.find("report-util") != std::string::npos) {
             handleReportUtil();
