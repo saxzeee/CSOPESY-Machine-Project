@@ -11,6 +11,7 @@
 #include <mutex>
 #include <chrono>
 #include <memory>
+#include <random>
 
 // Struct to hold screen session data
 struct ScreenSession {
@@ -28,6 +29,7 @@ struct Process {
     int totalCommands;
     int executedCommands;
     bool finished;
+    std::string startTimestamp;
     std::string finishTimestamp;
 };
 
@@ -107,6 +109,71 @@ private:
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
+
+    void cpuWorkerRoundRobin(int coreID) {
+        size_t procCount = processList.size();
+        size_t currentIndex = coreID - 1; // distribute processes per core start
+
+        while (schedulerRunning) {
+            processMutex.lock();
+
+            // Find the next unfinished process in round-robin fashion
+            size_t startIndex = currentIndex;
+            Process* proc = nullptr;
+
+            do {
+                if (!processList[currentIndex].finished &&
+                    processList[currentIndex].executedCommands < processList[currentIndex].totalCommands) {
+                    proc = &processList[currentIndex];
+                    break;
+                }
+                currentIndex = (currentIndex + 1) % procCount;
+            } while (currentIndex != startIndex);
+
+            processMutex.unlock();
+
+            if (!proc) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                continue;
+            }
+
+            int cyclesToRun = std::min((int)quantumCycles,
+                                    proc->totalCommands - proc->executedCommands);
+
+            for (int i = 0; i < cyclesToRun; ++i) {
+                processMutex.lock();
+
+                if (proc->finished) {
+                    processMutex.unlock();
+                    break;
+                }
+
+                std::string logLine = "(" + getCurrentTimestamp() + ") Core:" +
+                    std::to_string(coreID - 1) + " \"Hello world from " + proc->name + "!\"";
+
+                if (screenSessions) {
+                    auto it = screenSessions->find(proc->name);
+                    if (it != screenSessions->end()) {
+                        it->second.processLogs.push_back(logLine);
+                        it->second.currentLine = proc->executedCommands;
+                    }
+                }
+
+                proc->executedCommands++;
+                if (proc->executedCommands >= proc->totalCommands) {
+                    proc->finished = true;
+                    proc->finishTimestamp = getCurrentTimestamp();
+                    finishedProcesses.push_back(currentIndex);
+                }
+
+                processMutex.unlock();
+
+                std::this_thread::sleep_for(std::chrono::milliseconds(delayPerExec));
+            }
+
+            currentIndex = (currentIndex + 1) % procCount;
+        }
+    }
     
     // edit
     void scheduler() {
@@ -168,26 +235,43 @@ public:
     }
 
     void runScheduler() {
-        // create 10 dummy processes with 100 print commands (for testing)
+        // create processes each X CPU ticks
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        std::uniform_int_distribution<> dist(minIns, maxIns);
         for (int i = 1; i <= 10; i++) {
             Process proc;
             proc.name = "process" + std::to_string(i);
-            proc.totalCommands = 100;
+            proc.totalCommands = dist(gen);  
             proc.executedCommands = 0;
+            proc.startTimestamp = getCurrentTimestamp(); 
             proc.finished = false;
             processList.push_back(proc);
 
             if (screenSessions) {
                 std::lock_guard<std::mutex> lock(processMutex);
                 (*screenSessions)[proc.name] = {
-                    proc.name, 1, proc.totalCommands, getCurrentTimestamp()
+                    proc.name, 1, proc.totalCommands, proc.startTimestamp
                 };
             }
+            std::this_thread::sleep_for(std::chrono::milliseconds(batchProcFreq));
         }
 
         std::vector<std::thread> cpuThreads;
+        /*
         for (int i = 1; i <= static_cast<int>(numCores); i++) {
-            cpuThreads.push_back(std::thread(&Scheduler::cpuWorker, this, i));
+             cpuThreads.push_back(std::thread(&Scheduler::cpuWorker, this, i));
+        }
+        */
+        for (int i = 1; i <= static_cast<int>(numCores); i++) {
+            if (algorithm == "rr") {
+                cpuThreads.emplace_back(&Scheduler::cpuWorkerRoundRobin, this, i);
+            } else if (algorithm == "fcfs"){
+                cpuThreads.emplace_back(&Scheduler::cpuWorker, this, i);
+            }
+            else {
+                std::cout << "Algorithm Invalid";
+            }
         }
 
         std::thread schedThread(&Scheduler::scheduler, this);
@@ -196,7 +280,6 @@ public:
 		for (size_t i = 0; i < cpuThreads.size(); i++) {
 		    cpuThreads[i].join();
 		}
-
     }
 
     void shutdown() {
@@ -229,7 +312,7 @@ public:
         for (size_t i = 0; i < processList.size(); i++) {
             if (!processList[i].finished) {
                 std::cout << std::setw(nameWidth) << processList[i].name << "  ";
-                std::cout << "(" << getCurrentTimestamp() << ")  ";
+                std::cout << "(Started: " << processList[i].startTimestamp << ")  ";
                 std::cout << "Core: " << (i % 4) << "  ";
                 std::cout << processList[i].executedCommands << " / " << processList[i].totalCommands << "\n";
             }
@@ -583,21 +666,22 @@ void handleScreenS(const std::string& name, Scheduler* scheduler, std::map<std::
         return;
     }
 
-    // Create new process
+    // Generate a random instruction count within configured bounds
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> dist(scheduler->minIns, scheduler->maxIns);
+    int randomInstructions = dist(gen);
+
+    // Create new process with randomized totalCommands
     Process proc;
     proc.name = name;
-    proc.totalCommands = 10;  // Replace with randomized logic if needed
+    proc.totalCommands = randomInstructions;
     proc.executedCommands = 0;
     proc.finished = false;
 
     screens[name] = { name, 1, proc.totalCommands, getCurrentTimestamp() };
 
-    std::ofstream logFile(name + ".txt", std::ios::trunc);
-    logFile << "Process name: " << name << "\nLogs:\n\n";
-    logFile.close();
-
     scheduler->addProcess(proc);
-    screenLoop(screens[name]);
 }
 
 void handleScreenR(const std::string& name, std::map<std::string, ScreenSession>& screens) {
