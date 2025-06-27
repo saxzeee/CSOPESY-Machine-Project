@@ -11,6 +11,7 @@
 #include <mutex>
 #include <chrono>
 #include <memory>
+#include <random>
 
 // Struct to hold screen session data
 struct ScreenSession {
@@ -28,6 +29,7 @@ struct Process {
     int totalCommands;
     int executedCommands;
     bool finished;
+    std::string startTimestamp;
     std::string finishTimestamp;
 };
 
@@ -233,21 +235,26 @@ public:
     }
 
     void runScheduler() {
-        // create 10 dummy processes with 100 print commands (for testing)
+        // create processes each X CPU ticks
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        std::uniform_int_distribution<> dist(minIns, maxIns);
         for (int i = 1; i <= 10; i++) {
             Process proc;
             proc.name = "process" + std::to_string(i);
-            proc.totalCommands = 100;
+            proc.totalCommands = dist(gen);  
             proc.executedCommands = 0;
+            proc.startTimestamp = getCurrentTimestamp(); 
             proc.finished = false;
             processList.push_back(proc);
 
             if (screenSessions) {
                 std::lock_guard<std::mutex> lock(processMutex);
                 (*screenSessions)[proc.name] = {
-                    proc.name, 1, proc.totalCommands, getCurrentTimestamp()
+                    proc.name, 1, proc.totalCommands, proc.startTimestamp
                 };
             }
+            std::this_thread::sleep_for(std::chrono::milliseconds(batchProcFreq));
         }
 
         std::vector<std::thread> cpuThreads;
@@ -305,7 +312,7 @@ public:
         for (size_t i = 0; i < processList.size(); i++) {
             if (!processList[i].finished) {
                 std::cout << std::setw(nameWidth) << processList[i].name << "  ";
-                std::cout << "(" << getCurrentTimestamp() << ")  ";
+                std::cout << "(Started: " << processList[i].startTimestamp << ")  ";
                 std::cout << "Core: " << (i % 4) << "  ";
                 std::cout << processList[i].executedCommands << " / " << processList[i].totalCommands << "\n";
             }
@@ -659,10 +666,16 @@ void handleScreenS(const std::string& name, Scheduler* scheduler, std::map<std::
         return;
     }
 
-    // Create new process
+    // Generate a random instruction count within configured bounds
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> dist(scheduler->minIns, scheduler->maxIns);
+    int randomInstructions = dist(gen);
+
+    // Create new process with randomized totalCommands
     Process proc;
     proc.name = name;
-    proc.totalCommands = 10;  // Replace with randomized logic if needed
+    proc.totalCommands = randomInstructions;
     proc.executedCommands = 0;
     proc.finished = false;
 
