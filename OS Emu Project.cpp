@@ -31,6 +31,76 @@ struct Process {
     std::string finishTimestamp;
 };
 
+
+
+class ProcessTest {
+public:
+    struct RequirementFlags {
+        bool requireFiles;
+        int numFiles;
+        bool requireMemory;
+        int memoryRequired;
+
+    };
+    enum processState {
+        Ready,
+        Running,
+        Waiting,
+        Finished,
+
+    };
+
+    enum DataType {
+        Integer,
+        Float,
+        Double,
+        String
+    };
+
+    struct Symbol {
+        DataType dtype;
+        std::string value;
+    };
+
+private:
+    int pid;
+    std::string name;
+    RequirementFlags requirements;
+    processState state;
+};
+
+
+
+class ICommand {
+public:
+    enum CommandType {
+        IO,
+        Print
+    };
+    ICommand(int pid, CommandType commandType);
+    CommandType getCommandType();
+    virtual void execute();
+
+protected:
+    int pid;
+    CommandType commandType;
+};
+
+inline ICommand::CommandType ICommand::getCommandType() {
+    return this->commandType;
+}
+
+inline void ICommand::execute() {
+    //something per instruction delay
+}
+
+inline ICommand::ICommand(int pid, CommandType commandType) {
+    this->pid = pid;
+    this->commandType = commandType;
+
+}
+
+
 // Struct to hold config.txt details
 struct schedConfig {
     unsigned int numCores;
@@ -106,7 +176,6 @@ private:
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
-    
     // ediot
     void scheduler() {
         while (true) {
@@ -373,6 +442,19 @@ bool readConfigFile(std::string filePath, schedConfig* config) { //read the conf
     }
     return true;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 int main() {
     bool menuState = true;
