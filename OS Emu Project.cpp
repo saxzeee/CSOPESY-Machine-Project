@@ -1,4 +1,3 @@
-
 #include <iostream>
 #include <string>
 #include <map>
@@ -30,8 +29,6 @@ struct Process {
     bool finished;
     std::string finishTimestamp;
 };
-
-
 
 class ProcessTest {
 public:
@@ -71,35 +68,123 @@ private:
 
 
 
+// Base instruction interface
 class ICommand {
 public:
     enum CommandType {
-        IO,
-        Print
+        PRINT,
+        DECLARE,
+        ADD,
+        SUBTRACT,
+        SLEEP,
+        FOR
     };
-    ICommand(int pid, CommandType commandType);
-    CommandType getCommandType();
-    virtual void execute();
+    ICommand(int pid, CommandType type) : pid(pid), commandType(type) {}
+    virtual ~ICommand() = default;
+    CommandType getCommandType() { return commandType; }
+    virtual void execute() = 0;
 
 protected:
     int pid;
     CommandType commandType;
 };
 
-inline ICommand::CommandType ICommand::getCommandType() {
-    return this->commandType;
-}
+// PRINT command
+class PrintCommand : public ICommand {
+public:
+    PrintCommand(int pid, const std::string& toPrint) : ICommand(pid, PRINT), toPrint(toPrint) {}
 
-inline void ICommand::execute() {
-    //something per instruction delay
-}
+    void execute() override {
+        // Simulate printing to the process's screen/log
+        std::cout << "PID " << pid << ": " << toPrint << std::endl;
+    }
 
-inline ICommand::ICommand(int pid, CommandType commandType) {
-    this->pid = pid;
-    this->commandType = commandType;
+private:
+    std::string toPrint;
+};
 
-}
+// DECLARE command
+class DeclareCommand : public ICommand {
+public:
+    DeclareCommand(int pid, const std::string& varName, uint16_t value)
+        : ICommand(pid, DECLARE), varName(varName), value(value) {}
 
+    void execute() override {
+        // Simulate variable declaration (store in process memory)
+        std::cout << "PID " << pid << ": DECLARE " << varName << " = " << value << std::endl;
+        // TODO: Actually store in process symbol table
+    }
+
+private:
+    std::string varName;
+    uint16_t value;
+};
+
+// ADD command
+class AddCommand : public ICommand {
+public:
+    AddCommand(int pid, const std::string& dest, const std::string& src1, const std::string& src2)
+        : ICommand(pid, ADD), dest(dest), src1(src1), src2(src2) {}
+
+    void execute() override {
+        // Simulate addition (fetch from symbol table, add, store result)
+        std::cout << "PID " << pid << ": ADD " << dest << " = " << src1 << " + " << src2 << std::endl;
+        // TODO: Actually perform addition and store in symbol table
+    }
+
+private:
+    std::string dest, src1, src2;
+};
+
+// SUBTRACT command
+class SubtractCommand : public ICommand {
+public:
+    SubtractCommand(int pid, const std::string& dest, const std::string& src1, const std::string& src2)
+        : ICommand(pid, SUBTRACT), dest(dest), src1(src1), src2(src2) {}
+
+    void execute() override {
+        std::cout << "PID " << pid << ": SUBTRACT " << dest << " = " << src1 << " - " << src2 << std::endl;
+        // TODO: Actually perform subtraction and store in symbol table
+    }
+
+private:
+    std::string dest, src1, src2;
+};
+
+// SLEEP command
+class SleepCommand : public ICommand {
+public:
+    SleepCommand(int pid, uint8_t ticks)
+        : ICommand(pid, SLEEP), ticks(ticks) {}
+
+    void execute() override {
+        std::cout << "PID " << pid << ": SLEEP for " << (int)ticks << " ticks" << std::endl;
+        // TODO: Actually implement sleep logic in scheduler
+    }
+
+private:
+    uint8_t ticks;
+};
+
+// FOR command (simplified)
+class ForCommand : public ICommand {
+public:
+    ForCommand(int pid, std::vector<ICommand*> body, int repeats)
+        : ICommand(pid, FOR), body(body), repeats(repeats) {}
+
+    void execute() override {
+        std::cout << "PID " << pid << ": FOR loop x" << repeats << std::endl;
+        for (int i = 0; i < repeats; ++i) {
+            for (auto* cmd : body) {
+                cmd->execute();
+            }
+        }
+    }
+
+private:
+    std::vector<ICommand*> body;
+    int repeats;
+};
 
 // Struct to hold config.txt details
 struct schedConfig {
@@ -118,7 +203,7 @@ private:
     std::vector<Process> processList;
     std::vector<int> finishedProcesses;
     std::mutex processMutex;
-    bool schedulerRunning;
+    bool schedulerRunning = false;
     std::thread schedulerMain;
     std::map<std::string, ScreenSession>* screenSessions = nullptr;
 
@@ -464,8 +549,34 @@ int main() {
     schedConfig config;
     dispHeader();
     std::unique_ptr<Scheduler> procScheduler; //unique ptr for process scheduler where it will be created & config will be assigned later, also unique_ptr for memory management
-    // for the headers
-    /* 
+
+    // Place this in main(), before your main loop, for quick testing
+
+    // Example: Test each instruction
+    
+    std::vector<ICommand*> testInstructions;
+    testInstructions.push_back(new PrintCommand(1, "Hello world from test process!"));
+    testInstructions.push_back(new DeclareCommand(1, "x", 42));
+    testInstructions.push_back(new AddCommand(1, "sum", "x", "10"));
+    testInstructions.push_back(new SubtractCommand(1, "diff", "x", "5"));
+    testInstructions.push_back(new SleepCommand(1, 3));
+
+    // FOR loop with 2 repeats of a print
+    std::vector<ICommand*> forBody;
+    forBody.push_back(new PrintCommand(1, "Inside FOR loop!"));
+    testInstructions.push_back(new ForCommand(1, forBody, 2));
+
+    // Execute all
+    for (auto* cmd : testInstructions) {
+        cmd->execute();
+    }
+
+    // Cleanup
+    for (auto* cmd : testInstructions) delete cmd;
+    for (auto* cmd : forBody) delete cmd;
+    
+
+    /*
     for (auto& proc : processList) {
         std::string filename = proc.name + ".txt";
         std::ofstream outfile(filename, std::ios::trunc);
