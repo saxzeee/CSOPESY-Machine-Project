@@ -313,10 +313,33 @@ void screenLoop(ScreenSession& session) {
             dispHeader();
             break;
         }
-
-        // Simulate progressing through instructions
-        if (session.currentLine < session.totalLines) {
-            session.currentLine++;
+		else if (input == "process-smi") {
+		    std::string logFile = session.name + ".txt";
+		    std::ifstream log(logFile);
+		    if (log.is_open()) {
+		        std::cout << "===== PROCESS INFO: " << session.name << " =====\n";
+		        std::string line;
+		        while (std::getline(log, line)) {
+		            std::cout << line << "\n";
+		        }
+		        log.close();
+		    } else {
+		        std::cout << "No logs found for this process.\n";
+		    }
+		
+		    // Check if finished
+		    for (const auto& proc : processList) {
+		        if (proc.name == session.name && proc.finished) {
+		            std::cout << "Finished!\n";
+		        }
+		    }
+		
+		    // Pause before refresh
+		    std::cout << "\nPress Enter to continue...";
+		    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+		}
+        else {
+            std::cout << "Unknown command.\n";
         }
     }
 }
@@ -443,19 +466,45 @@ int main() {
         }
         else if (inputCommand.rfind("screen -s ", 0) == 0) {
             std::string name = inputCommand.substr(10);
-            if (screens.find(name) == screens.end()) {
-                screens[name] = { name, 1, 10, getCurrentTimestamp() };
+            if (screens.find(name) != screens.end()) {
+                std::cout << "Process with name '" << name << "' already exists.\n";
+                continue;
             }
+
+            // Create Process
+            Process proc;
+            proc.name = name;
+            proc.totalCommands = 10;  // Or randomize using minIns/maxIns
+            proc.executedCommands = 0;
+            proc.finished = false;
+
+            screens[name] = { name, 1, proc.totalCommands, getCurrentTimestamp() };
+            procScheduler->addProcess(proc);
+
             screenLoop(screens[name]);
         }
         else if (inputCommand.rfind("screen -r ", 0) == 0) {
             std::string name = inputCommand.substr(10);
-            if (screens.find(name) != screens.end()) {
-                screenLoop(screens[name]);
+            auto it = screens.find(name);
+            if (it == screens.end()) {
+                std::cout << "Process " << name << " not found.\n";
+                continue;
             }
-            else {
-                std::cout << "No screen session named '" << name << "' exists.\n";
+
+            // Check if the process has finished
+            bool isFinished = false;
+            for (const auto& proc : processList) {
+                if (proc.name == name && proc.finished) {
+                    isFinished = true;
+                    break;
+                }
             }
+            if (isFinished) {
+                std::cout << "Process " << name << " not found.\n";
+                continue;
+            }
+
+            screenLoop(it->second);
         }
         else if (inputCommand.find("screen -ls") != std::string::npos) {
             procScheduler->showScreenLS();
