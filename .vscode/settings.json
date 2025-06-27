@@ -63,6 +63,20 @@
         "stop_token": "cpp",
         "thread": "cpp",
         "vector": "cpp",
-        "random": "cpp"
+        "random": "cpp",
+        "array": "cpp",
+        "condition_variable": "cpp",
+        "cwctype": "cpp",
+        "deque": "cpp",
+        "unordered_map": "cpp",
+        "functional": "cpp",
+        "memory_resource": "cpp",
+        "numeric": "cpp",
+        "string_view": "cpp",
+        "numbers": "cpp",
+        "semaphore": "cpp",
+        "span": "cpp",
+        "text_encoding": "cpp",
+        "variant": "cpp"
     }
 }
