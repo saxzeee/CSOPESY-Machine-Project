@@ -18,6 +18,8 @@ struct ScreenSession {
     int currentLine;
     int totalLines;
     std::string timestamp;
+    std::vector<std::string> sessionLog;
+    std::vector<std::string> processLogs;
 };
 
 // Struct for process -> refactor into class? 
@@ -75,13 +77,17 @@ private:
                 Process& proc = processList[procIndex];
 
                 // Log before increment
-                std::string filename = proc.name + ".txt";
-                std::ofstream outfile(filename, std::ios::app);
-                outfile << "(" << getCurrentTimestamp() << ") "
-                    << "Core:" << (coreID - 1) << " "
-                    << "\"Hello world from " << proc.name << "!\"" << std::endl;
-                outfile.close();
+                std::string logLine = "(" + getCurrentTimestamp() + ") " +
+                    "Core:" + std::to_string(coreID - 1) + " " +
+                    "\"Hello world from " + proc.name + "!\"";
 
+                if (screenSessions) {
+                    auto it = screenSessions->find(proc.name);
+                    if (it != screenSessions->end()) {
+                        it->second.processLogs.push_back(logLine);
+                        it->second.currentLine = proc.executedCommands;
+                    }
+                }
                 proc.executedCommands++;
                 procName = proc.name;
 
@@ -192,6 +198,14 @@ public:
 		}
 
     }
+
+    void shutdown() {
+        schedulerRunning = false;
+        if (schedulerMain.joinable()) {
+            schedulerMain.join();
+        }
+    }
+
     void printConfig() const { // display config for verifying if it creates and assigns attributes correctly
         std::cout << "---- Scheduler Configuration ----\n";
         std::cout << "Number of CPU Cores   : " << numCores << "\n";
@@ -289,55 +303,51 @@ std::string getCurrentTimestamp() {
 
 // Display screen layout
 void displayScreen(const ScreenSession& session) {
-    clearScreen();
     setTextColor(36);
     std::cout << "Process name: " << session.name << "\n";
     std::cout << "Instruction: Line " << session.currentLine << " / " << session.totalLines << "\n";
     std::cout << "Created at: " << session.timestamp << "\n";
     defaultColor();
-    std::cout << "\n(Type 'exit' to return to the main menu)\n";
+    if (!session.sessionLog.empty()) {
+        for (const auto& entry : session.sessionLog) {
+            std::cout << entry << "\n";
+        }
+    }
+    //std::cout << "\n(Type 'exit' to return to the main menu)\n";
 }
 
 // Loop for inside screen session
 void screenLoop(ScreenSession& session) {
     std::string input;
+    clearScreen();
+
     while (true) {
         displayScreen(session);
         std::cout << "\n>> ";
         std::getline(std::cin, input);
-
         if (input == "exit") {
             clearScreen();
             dispHeader();
             break;
         }
-		else if (input == "process-smi") {
-		    std::string logFile = session.name + ".txt";
-		    std::ifstream log(logFile);
-		    if (log.is_open()) {
-		        std::cout << "===== PROCESS INFO: " << session.name << " =====\n";
-		        std::string line;
-		        while (std::getline(log, line)) {
-		            std::cout << line << "\n";
-		        }
-		        log.close();
-		    } else {
-		        std::cout << "No logs found for this process.\n";
-		    }
-		
-		    // Check if finished
-		    for (const auto& proc : processList) {
-		        if (proc.name == session.name && proc.finished) {
-		            std::cout << "Finished!\n";
-		        }
-		    }
-		
-		    // Pause before refresh
-		    std::cout << "\nPress Enter to continue...";
-		    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-		}
-        else {
-            std::cout << "Unknown command.\n";
+        else if (input == "process-smi") {
+            std::stringstream ss;
+            if (!session.processLogs.empty()) {
+                std::cout << "\n--- Process Logs ---\n";
+                for (const auto& log : session.processLogs) {
+                    std::cout << log << "\n";
+                }
+            }
+            else {
+                std::cout << "No logs found for this process.\n";
+            }
+
+            for (const auto& proc : processList) {
+                if (proc.name == session.name && proc.finished) {
+                    std::cout << "Finished!\n";
+                    break;
+                }
+            }
         }
     }
 }
@@ -603,7 +613,6 @@ void handleScreenR(const std::string& name, std::map<std::string, ScreenSession>
             return;
         }
     }
-
     screenLoop(it->second);
 }
 
@@ -677,7 +686,7 @@ int main() {
 
     std::thread schedThread(scheduler);
     */
-    testCommands(); // <-- Add this line to run the test at startup
+    // testCommands(); // <-- Add this line to run the test at startup
     while (menuState) {
         std::cout << "\nEnter a command: ";
         std::getline(std::cin, inputCommand);
@@ -697,6 +706,7 @@ int main() {
             dispHeader();
         }
         else if (inputCommand == "exit") {
+            procScheduler->shutdown();
             menuState = false;
             /*
             std::cout << "Waiting for all processes to finish...\n";
