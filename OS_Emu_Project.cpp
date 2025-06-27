@@ -111,71 +111,62 @@ private:
     }
 
     void cpuWorkerRoundRobin(int coreID) {
-        //size_t procCount = processList.size();
-        size_t currentIndex = coreID - 1; // distribute processes per core start
+        size_t currentIndex = coreID - 1;
 
         while (schedulerRunning) {
+            size_t procIndex = -1;
+            {
+                std::lock_guard<std::mutex> lock(processMutex);
+                size_t procCount = processList.size();
+                if (procCount == 0) continue;
 
-            Process* proc = nullptr;
-            std::lock_guard<std::mutex> lock(processMutex);
-            size_t procCount = processList.size();
-            if (procCount == 0) {
-                continue;
+                size_t startIndex = currentIndex;
+                do {
+                    if (currentIndex >= procCount) currentIndex = 0;
+                    if (!processList[currentIndex].finished &&
+                        processList[currentIndex].executedCommands < processList[currentIndex].totalCommands) {
+                        procIndex = currentIndex;
+                        break;
+                    }
+                    currentIndex = (currentIndex + 1) % procCount;
+                } while (currentIndex != startIndex);
             }
-            size_t startIndex = currentIndex;
-            do {
-                if (currentIndex >= procCount) currentIndex = 0;
-                if (!processList[currentIndex].finished &&
-                    processList[currentIndex].executedCommands < processList[currentIndex].totalCommands) {
-                    proc = &processList[currentIndex];
-                    break;
-                }
-                currentIndex = (currentIndex + 1) % procCount;
-            } while (currentIndex != startIndex);
 
-
-            processMutex.unlock();
-
-            if (!proc) {
+            if (procIndex == -1) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 continue;
             }
 
-            int cyclesToRun = std::min((int)quantumCycles,
-                proc->totalCommands - proc->executedCommands);
+            for (int i = 0; i < (int)quantumCycles; ++i) {
+                std::lock_guard<std::mutex> lock(processMutex);
+                if (procIndex >= processList.size()) break;  // Sanity check
 
-            for (int i = 0; i < cyclesToRun; ++i) {
-                processMutex.lock();
-
-                if (proc->finished) {
-                    processMutex.unlock();
+                Process& proc = processList[procIndex];
+                if (proc.finished || proc.executedCommands >= proc.totalCommands)
                     break;
-                }
 
                 std::string logLine = "(" + getCurrentTimestamp() + ") Core:" +
-                    std::to_string(coreID - 1) + " \"Hello world from " + proc->name + "!\"";
+                    std::to_string(coreID - 1) + " \"Hello world from " + proc.name + "!\"";
 
                 if (screenSessions) {
-                    auto it = screenSessions->find(proc->name);
+                    auto it = screenSessions->find(proc.name);
                     if (it != screenSessions->end()) {
                         it->second.processLogs.push_back(logLine);
-                        it->second.currentLine = proc->executedCommands;
+                        it->second.currentLine = proc.executedCommands;
                     }
                 }
 
-                proc->executedCommands++;
-                if (proc->executedCommands >= proc->totalCommands) {
-                    proc->finished = true;
-                    proc->finishTimestamp = getCurrentTimestamp();
-                    finishedProcesses.push_back(currentIndex);
+                proc.executedCommands++;
+                if (proc.executedCommands >= proc.totalCommands) {
+                    proc.finished = true;
+                    proc.finishTimestamp = getCurrentTimestamp();
+                    finishedProcesses.push_back(procIndex);
                 }
-
-                processMutex.unlock();
 
                 std::this_thread::sleep_for(std::chrono::milliseconds(delayPerExec));
             }
 
-            currentIndex = (currentIndex + 1) % procCount;
+            currentIndex = (currentIndex + 1) % processList.size();
         }
     }
 
