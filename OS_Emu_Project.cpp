@@ -107,6 +107,71 @@ private:
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
+
+    void cpuWorkerRoundRobin(int coreID) {
+        size_t procCount = processList.size();
+        size_t currentIndex = coreID - 1; // distribute processes per core start
+
+        while (schedulerRunning) {
+            processMutex.lock();
+
+            // Find the next unfinished process in round-robin fashion
+            size_t startIndex = currentIndex;
+            Process* proc = nullptr;
+
+            do {
+                if (!processList[currentIndex].finished &&
+                    processList[currentIndex].executedCommands < processList[currentIndex].totalCommands) {
+                    proc = &processList[currentIndex];
+                    break;
+                }
+                currentIndex = (currentIndex + 1) % procCount;
+            } while (currentIndex != startIndex);
+
+            processMutex.unlock();
+
+            if (!proc) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                continue;
+            }
+
+            int cyclesToRun = std::min((int)quantumCycles,
+                                    proc->totalCommands - proc->executedCommands);
+
+            for (int i = 0; i < cyclesToRun; ++i) {
+                processMutex.lock();
+
+                if (proc->finished) {
+                    processMutex.unlock();
+                    break;
+                }
+
+                std::string logLine = "(" + getCurrentTimestamp() + ") Core:" +
+                    std::to_string(coreID - 1) + " \"Hello world from " + proc->name + "!\"";
+
+                if (screenSessions) {
+                    auto it = screenSessions->find(proc->name);
+                    if (it != screenSessions->end()) {
+                        it->second.processLogs.push_back(logLine);
+                        it->second.currentLine = proc->executedCommands;
+                    }
+                }
+
+                proc->executedCommands++;
+                if (proc->executedCommands >= proc->totalCommands) {
+                    proc->finished = true;
+                    proc->finishTimestamp = getCurrentTimestamp();
+                    finishedProcesses.push_back(currentIndex);
+                }
+
+                processMutex.unlock();
+
+                std::this_thread::sleep_for(std::chrono::milliseconds(delayPerExec));
+            }
+
+            currentIndex = (currentIndex + 1) % procCount;
+        }
+    }
     
     // edit
     void scheduler() {
@@ -186,8 +251,20 @@ public:
         }
 
         std::vector<std::thread> cpuThreads;
+        /*
         for (int i = 1; i <= static_cast<int>(numCores); i++) {
-            cpuThreads.push_back(std::thread(&Scheduler::cpuWorker, this, i));
+             cpuThreads.push_back(std::thread(&Scheduler::cpuWorker, this, i));
+        }
+        */
+        for (int i = 1; i <= static_cast<int>(numCores); i++) {
+            if (algorithm == "rr") {
+                cpuThreads.emplace_back(&Scheduler::cpuWorkerRoundRobin, this, i);
+            } else if (algorithm == "fcfs"){
+                cpuThreads.emplace_back(&Scheduler::cpuWorker, this, i);
+            }
+            else {
+                std::cout << "Algorithm Invalid";
+            }
         }
 
         std::thread schedThread(&Scheduler::scheduler, this);
@@ -196,7 +273,6 @@ public:
 		for (size_t i = 0; i < cpuThreads.size(); i++) {
 		    cpuThreads[i].join();
 		}
-
     }
 
     void shutdown() {
@@ -592,12 +668,7 @@ void handleScreenS(const std::string& name, Scheduler* scheduler, std::map<std::
 
     screens[name] = { name, 1, proc.totalCommands, getCurrentTimestamp() };
 
-    std::ofstream logFile(name + ".txt", std::ios::trunc);
-    logFile << "Process name: " << name << "\nLogs:\n\n";
-    logFile.close();
-
     scheduler->addProcess(proc);
-    screenLoop(screens[name]);
 }
 
 void handleScreenR(const std::string& name, std::map<std::string, ScreenSession>& screens) {
