@@ -526,20 +526,15 @@ bool readConfigFile(std::string filePath, schedConfig* config) { //read the conf
             if (!(iss >> configVals)) continue;
             if (attribute == "num-cpu") {
                 config->numCores = std::stoi(configVals);
-            }
-            else if (attribute == "quantum-cycles") {
+            } else if (attribute == "quantum-cycles") {
                 config->quantumCycles = std::stoul(configVals);
-            }
-            else if (attribute == "batch-process-freq") {
+            } else if (attribute == "batch-process-freq") {
                 config->batchProcFreq = std::stoul(configVals);
-            }
-            else if (attribute == "min-ins") {
+            } else if (attribute == "min-ins") {
                 config->minIns = std::stoul(configVals);
-            }
-            else if (attribute == "max-ins") {
+            } else if (attribute == "max-ins") {
                 config->maxIns = std::stoul(configVals);
-            }
-            else if (attribute == "delay-per-exec") {
+            } else if (attribute == "delay-per-exec") {
                 config->delayPerExec = std::stoul(configVals);
             }
         }
