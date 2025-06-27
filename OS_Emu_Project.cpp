@@ -1,12 +1,10 @@
-
 #include <iostream>
 #include <string>
 #include <map>
 #include <ctime>
 #include <iomanip>
 #include <sstream>
-#include <algorithm> // for transform()
-// for fcfs
+#include <algorithm>
 #include <vector>
 #include <fstream>
 #include <thread>
@@ -31,6 +29,157 @@ struct Process {
     std::string finishTimestamp;
 };
 
+class ProcessTest {
+public:
+    struct RequirementFlags {
+        bool requireFiles;
+        int numFiles;
+        bool requireMemory;
+        int memoryRequired;
+
+    };
+    enum processState {
+        Ready,
+        Running,
+        Waiting,
+        Finished,
+
+    };
+
+    enum DataType {
+        Integer,
+        Float,
+        Double,
+        String
+    };
+
+    struct Symbol {
+        DataType dtype;
+        std::string value;
+    };
+
+private:
+    int pid;
+    std::string name;
+    RequirementFlags requirements;
+    processState state;
+};
+
+// Base instruction interface
+class ICommand {
+public:
+    enum CommandType {
+        PRINT,
+        DECLARE,
+        ADD,
+        SUBTRACT,
+        SLEEP,
+        FOR
+    };
+    ICommand(int pid, CommandType type) : pid(pid), commandType(type) {}
+    virtual ~ICommand() = default;
+    CommandType getCommandType() { return commandType; }
+    virtual void execute() = 0;
+
+protected:
+    int pid;
+    CommandType commandType;
+};
+
+// PRINT command
+class PrintCommand : public ICommand {
+public:
+    PrintCommand(int pid, const std::string& toPrint) : ICommand(pid, PRINT), toPrint(toPrint) {}
+
+    void execute() override {
+        // Simulate printing to the process's screen/log
+        std::cout << "PID " << pid << ": " << toPrint << std::endl;
+    }
+
+private:
+    std::string toPrint;
+};
+
+// DECLARE command
+class DeclareCommand : public ICommand {
+public:
+    DeclareCommand(int pid, const std::string& varName, uint16_t value)
+        : ICommand(pid, DECLARE), varName(varName), value(value) {}
+
+    void execute() override {
+        // Simulate variable declaration (store in process memory)
+        std::cout << "PID " << pid << ": DECLARE " << varName << " = " << value << std::endl;
+        // TODO: Actually store in process symbol table
+    }
+
+private:
+    std::string varName;
+    uint16_t value;
+};
+
+// ADD command
+class AddCommand : public ICommand {
+public:
+    AddCommand(int pid, const std::string& dest, const std::string& src1, const std::string& src2) : ICommand(pid, ADD), dest(dest), src1(src1), src2(src2) {}
+
+    void execute() override {
+        // Simulate addition (fetch from symbol table, add, store result)
+        std::cout << "PID " << pid << ": ADD " << dest << " = " << src1 << " + " << src2 << std::endl;
+        // TODO: Actually perform addition and store in symbol table
+    }
+
+private:
+    std::string dest, src1, src2;
+};
+
+// SUBTRACT command
+class SubtractCommand : public ICommand {
+public:
+    SubtractCommand(int pid, const std::string& dest, const std::string& src1, const std::string& src2) : ICommand(pid, SUBTRACT), dest(dest), src1(src1), src2(src2) {}
+
+    void execute() override {
+        std::cout << "PID " << pid << ": SUBTRACT " << dest << " = " << src1 << " - " << src2 << std::endl;
+        // TODO: Actually perform subtraction and store in symbol table
+    }
+
+private:
+    std::string dest, src1, src2;
+};
+
+// SLEEP command
+class SleepCommand : public ICommand {
+public:
+    SleepCommand(int pid, uint8_t ticks) : ICommand(pid, SLEEP), ticks(ticks) {}
+
+    void execute() override {
+        std::cout << "PID " << pid << ": SLEEP for " << (int)ticks << " ticks" << std::endl;
+        // TODO: Actually implement sleep logic in scheduler
+    }
+
+private:
+    uint8_t ticks;
+};
+
+// FOR command (simplified)
+class ForCommand : public ICommand {
+public:
+    ForCommand(int pid, std::vector<ICommand*> body, int repeats)
+        : ICommand(pid, FOR), body(body), repeats(repeats) {}
+
+    void execute() override {
+        std::cout << "PID " << pid << ": FOR loop x" << repeats << std::endl;
+        for (int i = 0; i < repeats; ++i) {
+            for (auto* cmd : body) {
+                cmd->execute();
+            }
+        }
+    }
+
+private:
+    std::vector<ICommand*> body;
+    int repeats;
+};
+
 // Struct to hold config.txt details
 struct schedConfig {
     unsigned int numCores;
@@ -42,6 +191,16 @@ struct schedConfig {
     uint32_t delayPerExec;
 
 };
+
+// get current timestamp
+std::string getCurrentTimestamp() {
+    time_t now = time(0);
+    tm ltm;
+    localtime_s(&ltm, &now);
+    std::ostringstream oss;
+    oss << std::put_time(&ltm, "%m/%d/%Y, %I:%M:%S %p");
+    return oss.str();
+}
 
 class Scheduler {
 private:
@@ -56,7 +215,7 @@ private:
         while (true) {
             processMutex.lock();
             int procIndex = -1;
-            for (size_t i = 0; i < processList.size(); i++) {
+            for (int i = 0; i < processList.size(); i++) {
                 if (!processList[i].finished && processList[i].executedCommands < processList[i].totalCommands) {
                     procIndex = i;
                     break;
@@ -72,6 +231,7 @@ private:
 
             // Copy data we need outside the lock to avoid holding it during I/O
             std::string procName;
+            bool justFinished = false;
             {
                 std::lock_guard<std::mutex> lock(processMutex);
                 Process& proc = processList[procIndex];
@@ -98,18 +258,19 @@ private:
                     proc.finished = true;
                     proc.finishTimestamp = getCurrentTimestamp();
                     finishedProcesses.push_back(procIndex);
+                    justFinished = true;
                 }
             }
+
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
-    
-    // edit
+    // ediot
     void scheduler() {
         while (true) {
             processMutex.lock();
             bool allDone = true;
-            for (size_t i = 0; i < processList.size(); i++) {
+            for (int i = 0; i < processList.size(); i++) {
                 if (!processList[i].finished) {
                     allDone = false;
                     break;
@@ -140,15 +301,15 @@ public:
     uint32_t maxIns;
     uint32_t delayPerExec;
 
-	Scheduler(const schedConfig& config) {
-	    numCores = config.numCores;
-	    algorithm = config.algorithm;
-	    quantumCycles = config.quantumCycles;
-	    batchProcFreq = config.batchProcFreq;
-	    minIns = config.minIns;
-	    maxIns = config.maxIns;
-	    delayPerExec = config.delayPerExec;
-	}
+    Scheduler(const schedConfig& config) {
+        numCores = config.numCores;
+        algorithm = config.algorithm;
+        quantumCycles = config.quantumCycles;
+        batchProcFreq = config.batchProcFreq;
+        minIns = config.minIns;
+        maxIns = config.maxIns;
+        delayPerExec = config.delayPerExec;
+    }
 
     void addProcess(const Process& process) {
         processList.push_back(process);
@@ -182,16 +343,16 @@ public:
         }
 
         std::vector<std::thread> cpuThreads;
-        for (int i = 1; i <= static_cast<int>(numCores); i++) {
+        for (int i = 1; i <= numCores; i++) {
             cpuThreads.push_back(std::thread(&Scheduler::cpuWorker, this, i));
         }
 
         std::thread schedThread(&Scheduler::scheduler, this);
 
         schedThread.join();
-		for (size_t i = 0; i < cpuThreads.size(); i++) {
-		    cpuThreads[i].join();
-		}
+        for (int i = 0; i < cpuThreads.size(); i++) {
+            cpuThreads[i].join();
+        }
 
     }
     void printConfig() const { // display config for verifying if it creates and assigns attributes correctly
@@ -214,7 +375,7 @@ public:
 
         std::cout << "---------------------------------------------\n";
         std::cout << "Running processes:\n";
-        for (size_t i = 0; i < processList.size(); i++) {
+        for (int i = 0; i < processList.size(); i++) {
             if (!processList[i].finished) {
                 std::cout << std::setw(nameWidth) << processList[i].name << "  ";
                 std::cout << "(" << getCurrentTimestamp() << ")  ";
@@ -223,7 +384,7 @@ public:
             }
         }
         std::cout << "\nFinished processes:\n";
-        for (size_t i = 0; i < processList.size(); i++) {
+        for (int i = 0; i < processList.size(); i++) {
             if (processList[i].finished) {
                 std::cout << std::setw(nameWidth) << processList[i].name << "  ";
                 std::cout << "(" << processList[i].finishTimestamp << ")  ";
@@ -243,6 +404,8 @@ public:
 std::vector<Process> processList;
 std::vector<int> finishedProcesses;
 std::mutex processMutex;
+
+//bool schedulerRunning = true;
 
 // Cross-platform clear screen
 void clearScreen() {
@@ -279,16 +442,6 @@ _/              _/  _/    _/  _/        _/              _/      _/
     defaultColor();
 }
 
-// get current timestamp
-std::string getCurrentTimestamp() {
-    time_t now = time(0);
-    tm ltm;
-    localtime_s(&ltm, &now);
-    std::ostringstream oss;
-    oss << std::put_time(&ltm, "%m/%d/%Y, %I:%M:%S %p");
-    return oss.str();
-}
-
 // Display screen layout
 void displayScreen(const ScreenSession& session) {
     clearScreen();
@@ -312,8 +465,7 @@ void screenLoop(ScreenSession& session) {
             clearScreen();
             dispHeader();
             break;
-        }
-		else if (input == "process-smi") {
+        } else if (input == "process-smi") {
 		    std::string logFile = session.name + ".txt";
 		    std::ifstream log(logFile);
 		    if (log.is_open()) {
@@ -337,9 +489,12 @@ void screenLoop(ScreenSession& session) {
 		    // Pause before refresh
 		    std::cout << "\nPress Enter to continue...";
 		    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-		}
-        else {
+		} else {
             std::cout << "Unknown command.\n";
+        }
+        // Simulate progressing through instructions
+        if (session.currentLine < session.totalLines) {
+            session.currentLine++;
         }
     }
 }
@@ -402,6 +557,10 @@ int main() {
     std::unique_ptr<Scheduler> procScheduler; //unique ptr for process scheduler where it will be created & config will be assigned later, also unique_ptr for memory management
     // for the headers
     /* 
+
+    // Place this in main(), before your main loop, for quick testing
+
+    /*
     for (auto& proc : processList) {
         std::string filename = proc.name + ".txt";
         std::ofstream outfile(filename, std::ios::trunc);
@@ -481,6 +640,9 @@ int main() {
             screens[name] = { name, 1, proc.totalCommands, getCurrentTimestamp() };
             procScheduler->addProcess(proc);
 
+            if (screens.find(name) == screens.end()) {
+                screens[name] = { name, 1, 10, getCurrentTimestamp() };
+            }
             screenLoop(screens[name]);
         }
         else if (inputCommand.rfind("screen -r ", 0) == 0) {
@@ -505,23 +667,20 @@ int main() {
             }
 
             screenLoop(it->second);
-        }
-        else if (inputCommand.find("screen -ls") != std::string::npos) {
+            if (screens.find(name) != screens.end()) {
+                screenLoop(screens[name]);
+            } else {
+                std::cout << "No screen session named '" << name << "' exists.\n";
+            }
+        } else if (inputCommand.find("screen -ls") != std::string::npos) {
             procScheduler->showScreenLS();
-        }
-        else if (inputCommand.find("scheduler-start") != std::string::npos) {
+        } else if (inputCommand.find("scheduler-start") != std::string::npos) {
             procScheduler->startScheduler();
-
-        }
-        else if (inputCommand.find("scheduler-stop") != std::string::npos) {
+        } else if (inputCommand.find("scheduler-stop") != std::string::npos) {
             std::cout << "scheduler-stop command recognized. Doing something.\n";
-        }
-        else if (inputCommand.find("report-util") != std::string::npos) {
+        } else if (inputCommand.find("report-util") != std::string::npos) {
             std::cout << "report-util command recognized. Doing something.\n";
-        }
-        
-        
-        else {
+        } else {
             std::cout << "Command not recognized. Type '-help' to display commands.\n";
         }
 
