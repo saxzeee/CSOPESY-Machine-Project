@@ -53,60 +53,61 @@ private:
     bool schedulerRunning = false;
     std::thread schedulerMain;
     std::map<std::string, ScreenSession>* screenSessions = nullptr;
-
-    void cpuWorker(int coreID) {
-        while (true) {
-            processMutex.lock();
+    
+    void cpuWorkerFCFS(int coreID) {
+        while (schedulerRunning) {
+            Process* selectedProc = nullptr;
             int procIndex = -1;
-            for (size_t i = 0; i < processList.size(); i++) {
-                if (!processList[i].finished && processList[i].executedCommands < processList[i].totalCommands) {
-                    procIndex = i;
-                    break;
+
+            {
+                std::lock_guard<std::mutex> lock(processMutex);
+                for (size_t i = 0; i < processList.size(); ++i) {
+                    if (!processList[i].finished && processList[i].executedCommands < processList[i].totalCommands) {
+                        selectedProc = &processList[i];
+                        procIndex = static_cast<int>(i);
+                        break;
+                    }
                 }
             }
-            processMutex.unlock();
 
-            if (procIndex == -1) {
-                if (!schedulerRunning) break;
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            if (!selectedProc) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(1)); // Yield lightly if idle
                 continue;
             }
 
-            // Copy data we need outside the lock to avoid holding it during I/O
-            std::string procName;
-            {
-                std::lock_guard<std::mutex> lock(processMutex);
-                Process& proc = processList[procIndex];
+            while (schedulerRunning && selectedProc->executedCommands < selectedProc->totalCommands) {
+                {
+                    std::lock_guard<std::mutex> lock(processMutex);
 
-                // Log before increment
-                std::string logLine = "(" + getCurrentTimestamp() + ") " +
-                    "Core:" + std::to_string(coreID - 1) + " " +
-                    "\"Hello world from " + proc.name + "!\"";
+                    std::string logLine = "(" + getCurrentTimestamp() + ") Core:" +
+                        std::to_string(coreID - 1) + " \"Hello world from " + selectedProc->name + "!\"";
 
-                if (screenSessions) {
-                    auto it = screenSessions->find(proc.name);
-                    if (it != screenSessions->end()) {
-                        it->second.processLogs.push_back(logLine);
-                        it->second.currentLine = proc.executedCommands;
+                    if (screenSessions) {
+                        auto it = screenSessions->find(selectedProc->name);
+                        if (it != screenSessions->end()) {
+                            it->second.processLogs.push_back(logLine);
+                            it->second.currentLine = selectedProc->executedCommands;
+                        }
                     }
-                }
-                proc.executedCommands++;
-                procName = proc.name;
 
-                if (screenSessions) {
-                    auto it = screenSessions->find(proc.name);
-                    if (it != screenSessions->end()) {
-                        it->second.currentLine = proc.executedCommands;
+                    selectedProc->executedCommands++;
+                    if (selectedProc->executedCommands >= selectedProc->totalCommands) {
+                        selectedProc->finished = true;
+                        selectedProc->finishTimestamp = getCurrentTimestamp();
+                        finishedProcesses.push_back(procIndex);
                     }
                 }
 
-                if (proc.executedCommands == proc.totalCommands) {
-                    proc.finished = true;
-                    proc.finishTimestamp = getCurrentTimestamp();
-                    finishedProcesses.push_back(procIndex);
+                // Busy-wait loop for delayPerExec milliseconds
+                if (delayPerExec > 0) {
+                    auto start = std::chrono::high_resolution_clock::now();
+                    while (std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::high_resolution_clock::now() - start)
+                            .count() < delayPerExec) {
+                        // No operation — tight loop
+                    }
                 }
             }
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
 
@@ -133,37 +134,49 @@ private:
             }
 
             if (procIndex == -1) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                std::this_thread::sleep_for(std::chrono::milliseconds(1)); // Yield briefly if idle
                 continue;
             }
 
             for (int i = 0; i < (int)quantumCycles; ++i) {
-                std::lock_guard<std::mutex> lock(processMutex);
-                if (procIndex >= processList.size()) break;  // Sanity check
+                bool completed = false;
+                {
+                    std::lock_guard<std::mutex> lock(processMutex);
+                    if (procIndex >= processList.size()) break;  // Sanity check
 
-                Process& proc = processList[procIndex];
-                if (proc.finished || proc.executedCommands >= proc.totalCommands)
-                    break;
+                    Process& proc = processList[procIndex];
+                    if (proc.finished || proc.executedCommands >= proc.totalCommands)
+                        break;
 
-                std::string logLine = "(" + getCurrentTimestamp() + ") Core:" +
-                    std::to_string(coreID - 1) + " \"Hello world from " + proc.name + "!\"";
+                    std::string logLine = "(" + getCurrentTimestamp() + ") Core:" +
+                        std::to_string(coreID - 1) + " \"Hello world from " + proc.name + "!\"";
 
-                if (screenSessions) {
-                    auto it = screenSessions->find(proc.name);
-                    if (it != screenSessions->end()) {
-                        it->second.processLogs.push_back(logLine);
-                        it->second.currentLine = proc.executedCommands;
+                    if (screenSessions) {
+                        auto it = screenSessions->find(proc.name);
+                        if (it != screenSessions->end()) {
+                            it->second.processLogs.push_back(logLine);
+                            it->second.currentLine = proc.executedCommands;
+                        }
+                    }
+
+                    proc.executedCommands++;
+                    if (proc.executedCommands >= proc.totalCommands) {
+                        proc.finished = true;
+                        proc.finishTimestamp = getCurrentTimestamp();
+                        finishedProcesses.push_back(procIndex);
+                        completed = true;
                     }
                 }
 
-                proc.executedCommands++;
-                if (proc.executedCommands >= proc.totalCommands) {
-                    proc.finished = true;
-                    proc.finishTimestamp = getCurrentTimestamp();
-                    finishedProcesses.push_back(procIndex);
+                // Busy-wait for delayPerExec ms
+                if (!completed && delayPerExec > 0) {
+                    auto start = std::chrono::high_resolution_clock::now();
+                    while (std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::high_resolution_clock::now() - start)
+                            .count() < delayPerExec) {
+                        // No-op loop (busy-wait)
+                    }
                 }
-
-                std::this_thread::sleep_for(std::chrono::milliseconds(delayPerExec));
             }
 
             currentIndex = (currentIndex + 1) % processList.size();
@@ -240,7 +253,7 @@ public:
                 cpuThreads.emplace_back(&Scheduler::cpuWorkerRoundRobin, this, i);
             }
             else if (algorithm == "fcfs") {
-                cpuThreads.emplace_back(&Scheduler::cpuWorker, this, i);
+                cpuThreads.emplace_back(&Scheduler::cpuWorkerFCFS, this, i);
             }
             else {
                 std::cout << "Algorithm Invalid\n";
