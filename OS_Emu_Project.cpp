@@ -188,13 +188,11 @@ private:
 
                 Process& proc = processList[procIndex];
 
-                // --- SLEEP HANDLING ---
                 if (proc.sleepRemaining > 0) {
                     proc.sleepRemaining--;
                     proc.coreAssigned = -1;
-                    break; // End quantum for this process
+                    break; 
                 }
-                // --- END SLEEP HANDLING ---
 
                 if (proc.finished || proc.executedCommands >= proc.totalCommands)
                     break;
@@ -835,12 +833,7 @@ void executeInstruction(Process& proc, const Instruction& instr, std::ostream& o
     switch (instr.type) {
         case ICommand::InstrType::PRINT: {
             out << "PID " << proc.name << ": ";
-            out << instr.msg;
-            if (!instr.printVar.empty()) {
-                uint16_t val = proc.variables[instr.printVar];
-                out << val;
-            }
-            out << std::endl;
+            out << instr.msg << std::endl;
             break;
         }
         case ICommand::InstrType::DECLARE: {
@@ -916,9 +909,7 @@ std::vector<Instruction> generateRandomInstructions(const std::string& procName,
             case 0: { // PRINT
                 instr.type = ICommand::InstrType::PRINT;
                 instr.msg = "Hello world from " + procName + "!";
-                if (!declaredVars.empty() && gen() % 2 == 0) {
-                    instr.printVar = declaredVars[gen() % declaredVars.size()];
-                }
+                instr.printVar = ""; // Always empty
                 break;
             }
 
