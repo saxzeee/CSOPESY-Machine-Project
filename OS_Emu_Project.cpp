@@ -11,6 +11,7 @@
 #include <mutex>
 #include <chrono>
 #include <memory>
+#include <random>
 
 // Struct to hold screen session data
 struct ScreenSession {
@@ -18,6 +19,8 @@ struct ScreenSession {
     int currentLine;
     int totalLines;
     std::string timestamp;
+    std::vector<std::string> sessionLog;
+    std::vector<std::string> processLogs;
 };
 
 // Struct for process -> refactor into class? 
@@ -26,6 +29,7 @@ struct Process {
     int totalCommands;
     int executedCommands;
     bool finished;
+    std::string startTimestamp;
     std::string finishTimestamp;
 };
 
@@ -75,13 +79,17 @@ private:
                 Process& proc = processList[procIndex];
 
                 // Log before increment
-                std::string filename = proc.name + ".txt";
-                std::ofstream outfile(filename, std::ios::app);
-                outfile << "(" << getCurrentTimestamp() << ") "
-                    << "Core:" << (coreID - 1) << " "
-                    << "\"Hello world from " << proc.name << "!\"" << std::endl;
-                outfile.close();
+                std::string logLine = "(" + getCurrentTimestamp() + ") " +
+                    "Core:" + std::to_string(coreID - 1) + " " +
+                    "\"Hello world from " + proc.name + "!\"";
 
+                if (screenSessions) {
+                    auto it = screenSessions->find(proc.name);
+                    if (it != screenSessions->end()) {
+                        it->second.processLogs.push_back(logLine);
+                        it->second.currentLine = proc.executedCommands;
+                    }
+                }
                 proc.executedCommands++;
                 procName = proc.name;
 
@@ -94,6 +102,10 @@ private:
 
                 if (proc.executedCommands == proc.totalCommands) {
                     proc.finished = true;
+                    auto it = screenSessions->find(proc.name);
+                    if (it != screenSessions->end()) {
+                        it->second.currentLine = proc.executedCommands;
+                    }
                     proc.finishTimestamp = getCurrentTimestamp();
                     finishedProcesses.push_back(procIndex);
                 }
@@ -101,8 +113,67 @@ private:
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
-    
-    // edit
+
+    void cpuWorkerRoundRobin(int coreID) {
+        size_t currentIndex = coreID - 1;
+
+        while (schedulerRunning) {
+            size_t procIndex = -1;
+            {
+                std::lock_guard<std::mutex> lock(processMutex);
+                size_t procCount = processList.size();
+                if (procCount == 0) continue;
+
+                size_t startIndex = currentIndex;
+                do {
+                    if (currentIndex >= procCount) currentIndex = 0;
+                    if (!processList[currentIndex].finished &&
+                        processList[currentIndex].executedCommands < processList[currentIndex].totalCommands) {
+                        procIndex = currentIndex;
+                        break;
+                    }
+                    currentIndex = (currentIndex + 1) % procCount;
+                } while (currentIndex != startIndex);
+            }
+
+            if (procIndex == -1) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                continue;
+            }
+
+            for (int i = 0; i < (int)quantumCycles; ++i) {
+                std::lock_guard<std::mutex> lock(processMutex);
+                if (procIndex >= processList.size()) break;  // Sanity check
+
+                Process& proc = processList[procIndex];
+                if (proc.finished || proc.executedCommands >= proc.totalCommands)
+                    break;
+
+                std::string logLine = "(" + getCurrentTimestamp() + ") Core:" +
+                    std::to_string(coreID - 1) + " \"Hello world from " + proc.name + "!\"";
+
+                if (screenSessions) {
+                    auto it = screenSessions->find(proc.name);
+                    if (it != screenSessions->end()) {
+                        it->second.processLogs.push_back(logLine);
+                        it->second.currentLine = proc.executedCommands;
+                    }
+                }
+
+                proc.executedCommands++;
+                if (proc.executedCommands >= proc.totalCommands) {
+                    proc.finished = true;
+                    proc.finishTimestamp = getCurrentTimestamp();
+                    finishedProcesses.push_back(procIndex);
+                }
+
+                std::this_thread::sleep_for(std::chrono::milliseconds(delayPerExec));
+            }
+
+            currentIndex = (currentIndex + 1) % processList.size();
+        }
+    }
+
     void scheduler() {
         while (true) {
             processMutex.lock();
@@ -117,7 +188,6 @@ private:
             if (allDone) break;
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
-        schedulerRunning = false;
     }
 
     std::string getCurrentTimestamp() {
@@ -138,20 +208,25 @@ public:
     uint32_t maxIns;
     uint32_t delayPerExec;
 
-	Scheduler(const schedConfig& config) {
-	    numCores = config.numCores;
-	    algorithm = config.algorithm;
-	    quantumCycles = config.quantumCycles;
-	    batchProcFreq = config.batchProcFreq;
-	    minIns = config.minIns;
-	    maxIns = config.maxIns;
-	    delayPerExec = config.delayPerExec;
-	}
+    Scheduler(const schedConfig& config) {
+        numCores = config.numCores;
+        algorithm = config.algorithm;
+        quantumCycles = config.quantumCycles;
+        batchProcFreq = config.batchProcFreq;
+        minIns = config.minIns;
+        maxIns = config.maxIns;
+        delayPerExec = config.delayPerExec;
+    }
 
     void addProcess(const Process& process) {
         processList.push_back(process);
     }
-
+    const std::vector<Process>& getProcessList() const {
+        return processList;
+    }
+    const std::vector<int>& getFinishedProcesses() const {
+        return finishedProcesses;
+    }
     void startScheduler() {
         if (schedulerRunning) {
             std::cout << "Scheduler already running.\n";
@@ -161,37 +236,105 @@ public:
         schedulerMain = std::thread(&Scheduler::runScheduler, this);
     }
 
-    void runScheduler() {
-        // create 10 dummy processes with 100 print commands (for testing)
-        for (int i = 1; i <= 10; i++) {
-            Process proc;
-            proc.name = "process" + std::to_string(i);
-            proc.totalCommands = 100;
-            proc.executedCommands = 0;
-            proc.finished = false;
-            processList.push_back(proc);
+    bool isRunning() const {
+        return schedulerRunning;
+    }
 
-            if (screenSessions) {
-                std::lock_guard<std::mutex> lock(processMutex);
-                (*screenSessions)[proc.name] = {
-                    proc.name, 1, proc.totalCommands, getCurrentTimestamp()
-                };
+    void runScheduler() {
+        // Start CPU threads first
+        std::vector<std::thread> cpuThreads;
+        for (int i = 1; i <= static_cast<int>(numCores); i++) {
+            if (algorithm == "rr") {
+                cpuThreads.emplace_back(&Scheduler::cpuWorkerRoundRobin, this, i);
+            }
+            else if (algorithm == "fcfs") {
+                cpuThreads.emplace_back(&Scheduler::cpuWorker, this, i);
+            }
+            else {
+                std::cout << "Algorithm Invalid\n";
+                return;
+            }
+        }
+        // Process generator
+        std::thread processCreator([this]() {
+            std::random_device rd;
+            std::mt19937 gen(rd());
+            std::uniform_int_distribution<> dist(minIns, maxIns);
+            int processCounter = 1;
+
+            while (schedulerRunning) {
+                Process proc;
+                proc.name = "process" + std::to_string(processCounter++);
+                proc.totalCommands = dist(gen);
+                proc.executedCommands = 0;
+                proc.startTimestamp = getCurrentTimestamp();
+                proc.finished = false;
+
+                {
+                    std::lock_guard<std::mutex> lock(processMutex);
+                    processList.push_back(proc);
+                    if (screenSessions) {
+                        (*screenSessions)[proc.name] = {
+                            proc.name, 1, proc.totalCommands, proc.startTimestamp
+                        };
+                    }
+                }
+
+                std::this_thread::sleep_for(std::chrono::milliseconds(batchProcFreq));
+            }
+            });
+
+        // Check for processes if done
+        std::thread schedThread(&Scheduler::scheduler, this);
+
+        // Wait for processes to end
+        processCreator.join();
+        schedThread.join();
+        for (auto& t : cpuThreads) t.join();
+    }
+
+    void generateLog(const std::string& filename) {
+        std::ofstream reportFile(filename);
+        if (!reportFile.is_open()) {
+            std::cerr << "Failed to open " << filename << " for writing.\n";
+            return;
+        }
+
+        reportFile << std::left;
+        int nameWidth = 12;
+
+        reportFile << "---------------------------------------------\n";
+        reportFile << "Running processes:\n";
+        for (const auto& proc : processList) {
+            if (!proc.finished) {
+                reportFile << std::setw(nameWidth) << proc.name << "  ";
+                reportFile << "(Started: " << proc.startTimestamp << ")  ";
+                reportFile << "Core: " << (&proc - &processList[0]) % numCores << "  ";
+                reportFile << proc.executedCommands << " / " << proc.totalCommands << "\n";
             }
         }
 
-        std::vector<std::thread> cpuThreads;
-        for (int i = 1; i <= static_cast<int>(numCores); i++) {
-            cpuThreads.push_back(std::thread(&Scheduler::cpuWorker, this, i));
+        reportFile << "\nFinished processes:\n";
+        for (const auto& proc : processList) {
+            if (proc.finished) {
+                reportFile << std::setw(nameWidth) << proc.name << "  ";
+                reportFile << "(" << proc.finishTimestamp << ")  ";
+                reportFile << "Finished  ";
+                reportFile << proc.executedCommands << " / " << proc.totalCommands << "\n";
+            }
         }
+        reportFile << "---------------------------------------------\n";
 
-        std::thread schedThread(&Scheduler::scheduler, this);
-
-        schedThread.join();
-		for (size_t i = 0; i < cpuThreads.size(); i++) {
-		    cpuThreads[i].join();
-		}
-
+        std::cout << "Process report written to " << filename << "\n";
     }
+
+    void shutdown() {
+        schedulerRunning = false;
+        if (schedulerMain.joinable()) {
+            schedulerMain.join();
+        }
+    }
+
     void printConfig() const { // display config for verifying if it creates and assigns attributes correctly
         std::cout << "---- Scheduler Configuration ----\n";
         std::cout << "Number of CPU Cores   : " << numCores << "\n";
@@ -215,7 +358,7 @@ public:
         for (size_t i = 0; i < processList.size(); i++) {
             if (!processList[i].finished) {
                 std::cout << std::setw(nameWidth) << processList[i].name << "  ";
-                std::cout << "(" << getCurrentTimestamp() << ")  ";
+                std::cout << "(Started: " << processList[i].startTimestamp << ")  ";
                 std::cout << "Core: " << (i % 4) << "  ";
                 std::cout << processList[i].executedCommands << " / " << processList[i].totalCommands << "\n";
             }
@@ -234,13 +377,9 @@ public:
     }
     void setScreenMap(std::map<std::string, ScreenSession>* screens) {
         screenSessions = screens;
-     }
-    
+    }
+
 };
-// global variables for process
-std::vector<Process> processList;
-std::vector<int> finishedProcesses;
-std::mutex processMutex;
 
 // Cross-platform clear screen
 void clearScreen() {
@@ -289,94 +428,54 @@ std::string getCurrentTimestamp() {
 
 // Display screen layout
 void displayScreen(const ScreenSession& session) {
-    clearScreen();
     setTextColor(36);
     std::cout << "Process name: " << session.name << "\n";
     std::cout << "Instruction: Line " << session.currentLine << " / " << session.totalLines << "\n";
     std::cout << "Created at: " << session.timestamp << "\n";
     defaultColor();
-    std::cout << "\n(Type 'exit' to return to the main menu)\n";
+    if (!session.sessionLog.empty()) {
+        for (const auto& entry : session.sessionLog) {
+            std::cout << entry << "\n";
+        }
+    }
+    //std::cout << "\n(Type 'exit' to return to the main menu)\n";
 }
 
 // Loop for inside screen session
-void screenLoop(ScreenSession& session) {
+void screenLoop(ScreenSession& session, Scheduler* scheduler) {
     std::string input;
+    clearScreen();
+
     while (true) {
         displayScreen(session);
         std::cout << "\n>> ";
         std::getline(std::cin, input);
-
         if (input == "exit") {
             clearScreen();
             dispHeader();
             break;
         }
-		else if (input == "process-smi") {
-		    std::string logFile = session.name + ".txt";
-		    std::ifstream log(logFile);
-		    if (log.is_open()) {
-		        std::cout << "===== PROCESS INFO: " << session.name << " =====\n";
-		        std::string line;
-		        while (std::getline(log, line)) {
-		            std::cout << line << "\n";
-		        }
-		        log.close();
-		    } else {
-		        std::cout << "No logs found for this process.\n";
-		    }
-		
-		    // Check if finished
-		    for (const auto& proc : processList) {
-		        if (proc.name == session.name && proc.finished) {
-		            std::cout << "Finished!\n";
-		        }
-		    }
-		
-		    // Pause before refresh
-		    std::cout << "\nPress Enter to continue...";
-		    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-		}
-        else {
-            std::cout << "Unknown command.\n";
+        else if (input == "process-smi") {
+            std::stringstream ss;
+            if (!session.processLogs.empty()) {
+                std::cout << "\n--- Process Logs ---\n";
+                for (const auto& log : session.processLogs) {
+                    std::cout << log << "\n";
+                }
+            }
+            else {
+                std::cout << "No logs found for this process.\n";
+            }
+
+            for (const auto& proc : scheduler->getProcessList()) {
+                if (proc.name == session.name && proc.finished) {
+                    std::cout << "Finished!\n";
+                    break;
+                }
+            }
         }
     }
 }
-
-class ProcessTest {
-public:
-    struct RequirementFlags {
-        bool requireFiles;
-        int numFiles;
-        bool requireMemory;
-        int memoryRequired;
-
-    };
-    enum processState {
-        Ready,
-        Running,
-        Waiting,
-        Finished,
-
-    };
-
-    enum DataType {
-        Integer,
-        Float,
-        Double,
-        String
-    };
-
-    struct Symbol {
-        DataType dtype;
-        std::string value;
-    };
-
-private:
-    int pid;
-    std::string name;
-    RequirementFlags requirements;
-    processState state;
-};
 
 // Base instruction interface
 class ICommand {
@@ -392,7 +491,8 @@ public:
     ICommand(int pid, CommandType type) : pid(pid), commandType(type) {}
     virtual ~ICommand() = default;
     CommandType getCommandType() { return commandType; }
-    virtual void execute() = 0;
+    // Pass symbol table to each execute
+    virtual void execute(std::map<std::string, uint16_t>& symbols, std::ostream& out = std::cout) = 0;
 
 protected:
     int pid;
@@ -402,15 +502,26 @@ protected:
 // PRINT command
 class PrintCommand : public ICommand {
 public:
-    PrintCommand(int pid, const std::string& toPrint) : ICommand(pid, PRINT), toPrint(toPrint) {}
+    // If varName is empty, just print msg. If not, print msg + value of varName.
+    PrintCommand(int pid, const std::string& msg, const std::string& varName = "")
+        : ICommand(pid, PRINT), msg(msg), varName(varName) {
+    }
 
-    void execute() override {
-        // Simulate printing to the process's screen/log
-        std::cout << "PID " << pid << ": " << toPrint << std::endl;
+    void execute(std::map<std::string, uint16_t>& symbols, std::ostream& out = std::cout) override {
+        out << "PID " << pid << ": ";
+        if (!varName.empty()) {
+            uint16_t val = 0;
+            if (symbols.count(varName)) val = symbols[varName];
+            out << msg << val << std::endl;
+        }
+        else {
+            out << msg << std::endl;
+        }
     }
 
 private:
-    std::string toPrint;
+    std::string msg;
+    std::string varName;
 };
 
 // DECLARE command
@@ -420,10 +531,9 @@ public:
         : ICommand(pid, DECLARE), varName(varName), value(value) {
     }
 
-    void execute() override {
-        // Simulate variable declaration (store in process memory)
-        std::cout << "PID " << pid << ": DECLARE " << varName << " = " << value << std::endl;
-        // TODO: Actually store in process symbol table
+    void execute(std::map<std::string, uint16_t>& symbols, std::ostream& out = std::cout) override {
+        symbols[varName] = value;
+        out << "PID " << pid << ": DECLARE " << varName << " = " << value << std::endl;
     }
 
 private:
@@ -431,15 +541,30 @@ private:
     uint16_t value;
 };
 
+// Helper: get value from symbol table or parse as uint16_t
+inline uint16_t getVarOrValue(const std::string& s, std::map<std::string, uint16_t>& symbols) {
+    if (std::all_of(s.begin(), s.end(), ::isdigit)) {
+        return static_cast<uint16_t>(std::stoi(s));
+    }
+    // If not found, auto-declare as 0
+    if (!symbols.count(s)) symbols[s] = 0;
+    return symbols[s];
+}
+
 // ADD command
 class AddCommand : public ICommand {
 public:
-    AddCommand(int pid, const std::string& dest, const std::string& src1, const std::string& src2) : ICommand(pid, ADD), dest(dest), src1(src1), src2(src2) {}
+    AddCommand(int pid, const std::string& dest, const std::string& src1, const std::string& src2)
+        : ICommand(pid, ADD), dest(dest), src1(src1), src2(src2) {
+    }
 
-    void execute() override {
-        // Simulate addition (fetch from symbol table, add, store result)
-        std::cout << "PID " << pid << ": ADD " << dest << " = " << src1 << " + " << src2 << std::endl;
-        // TODO: Actually perform addition and store in symbol table
+    void execute(std::map<std::string, uint16_t>& symbols, std::ostream& out = std::cout) override {
+        uint16_t v1 = getVarOrValue(src1, symbols);
+        uint16_t v2 = getVarOrValue(src2, symbols);
+        uint32_t sum = static_cast<uint32_t>(v1) + static_cast<uint32_t>(v2);
+        if (sum > 65535) sum = 65535; // clamp to uint16_t
+        symbols[dest] = static_cast<uint16_t>(sum);
+        out << "PID " << pid << ": ADD " << dest << " = " << v1 << " + " << v2 << " -> " << symbols[dest] << std::endl;
     }
 
 private:
@@ -449,11 +574,17 @@ private:
 // SUBTRACT command
 class SubtractCommand : public ICommand {
 public:
-    SubtractCommand(int pid, const std::string& dest, const std::string& src1, const std::string& src2) : ICommand(pid, SUBTRACT), dest(dest), src1(src1), src2(src2) {}
+    SubtractCommand(int pid, const std::string& dest, const std::string& src1, const std::string& src2)
+        : ICommand(pid, SUBTRACT), dest(dest), src1(src1), src2(src2) {
+    }
 
-    void execute() override {
-        std::cout << "PID " << pid << ": SUBTRACT " << dest << " = " << src1 << " - " << src2 << std::endl;
-        // TODO: Actually perform subtraction and store in symbol table
+    void execute(std::map<std::string, uint16_t>& symbols, std::ostream& out = std::cout) override {
+        uint16_t v1 = getVarOrValue(src1, symbols);
+        uint16_t v2 = getVarOrValue(src2, symbols);
+        int32_t diff = static_cast<int32_t>(v1) - static_cast<int32_t>(v2);
+        if (diff < 0) diff = 0; // clamp to 0
+        symbols[dest] = static_cast<uint16_t>(diff);
+        out << "PID " << pid << ": SUBTRACT " << dest << " = " << v1 << " - " << v2 << " -> " << symbols[dest] << std::endl;
     }
 
 private:
@@ -465,33 +596,37 @@ class SleepCommand : public ICommand {
 public:
     SleepCommand(int pid, uint8_t ticks) : ICommand(pid, SLEEP), ticks(ticks) {}
 
-    void execute() override {
-        std::cout << "PID " << pid << ": SLEEP for " << (int)ticks << " ticks" << std::endl;
-        // TODO: Actually implement sleep logic in scheduler
+    void execute(std::map<std::string, uint16_t>&, std::ostream& out = std::cout) override {
+        out << "PID " << pid << ": SLEEP for " << (int)ticks << " ticks" << std::endl;
+        // Actual sleep logic should be handled by the scheduler
     }
 
 private:
     uint8_t ticks;
 };
 
-// FOR command (simplified)
+// FOR command (can be nested)
 class ForCommand : public ICommand {
 public:
-    ForCommand(int pid, std::vector<ICommand*> body, int repeats)
-        : ICommand(pid, FOR), body(body), repeats(repeats) {
+    ForCommand(int pid, std::vector<std::unique_ptr<ICommand>>& body, int repeats)
+        : ICommand(pid, FOR), repeats(repeats) {
+        // Deep copy/move the body
+        for (auto& cmd : body) {
+            body_.emplace_back(std::move(cmd));
+        }
     }
 
-    void execute() override {
-        std::cout << "PID " << pid << ": FOR loop x" << repeats << std::endl;
+    void execute(std::map<std::string, uint16_t>& symbols, std::ostream& out = std::cout) override {
+        out << "PID " << pid << ": FOR loop x" << repeats << std::endl;
         for (int i = 0; i < repeats; ++i) {
-            for (auto* cmd : body) {
-                cmd->execute();
+            for (auto& cmd : body_) {
+                cmd->execute(symbols, out);
             }
         }
     }
 
 private:
-    std::vector<ICommand*> body;
+    std::vector<std::unique_ptr<ICommand>> body_;
     int repeats;
 };
 
@@ -548,109 +683,134 @@ void handleInitialize(schedConfig& config, std::unique_ptr<Scheduler>& scheduler
         scheduler->printConfig();
         scheduler->setScreenMap(&screens);
         initialized = true;
-    } else {
+    }
+    else {
         std::cout << "Initialization failed.\n";
     }
 }
 
 void handleScreenS(const std::string& name, Scheduler* scheduler, std::map<std::string, ScreenSession>& screens) {
     bool found = false, finished = false;
-    for (const auto& proc : processList) {
+    for (const auto& proc : scheduler->getProcessList()) {
         if (proc.name == name) {
             found = true;
             finished = proc.finished;
+            if (finished) {
+                std::cout << "Process '" << name << "' has already finished.\n";
+            }
+            else {
+                screenLoop(screens[name], scheduler);
+            }
             break;
         }
     }
+    if (!found) {
+        // Generate a random instruction count within configured bounds
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        std::uniform_int_distribution<> dist(scheduler->minIns, scheduler->maxIns);
+        int randomInstructions = dist(gen);
 
-    if (finished) {
-        std::cout << "Process '" << name << "' has already finished.\n";
-        return;
+        // Create new process with randomized totalCommands
+        Process proc;
+        proc.name = name;
+        proc.totalCommands = randomInstructions;
+        proc.executedCommands = 0;
+        proc.finished = false;
+
+        screens[name] = { name, 1, proc.totalCommands, getCurrentTimestamp() };
+
+        scheduler->addProcess(proc);
     }
-
-    if (found) {
-        screenLoop(screens[name]);
-        return;
-    }
-
-    // Create new process
-    Process proc;
-    proc.name = name;
-    proc.totalCommands = 10;  // Replace with randomized logic if needed
-    proc.executedCommands = 0;
-    proc.finished = false;
-
-    screens[name] = { name, 1, proc.totalCommands, getCurrentTimestamp() };
-
-    std::ofstream logFile(name + ".txt", std::ios::trunc);
-    logFile << "Process name: " << name << "\nLogs:\n\n";
-    logFile.close();
-
-    scheduler->addProcess(proc);
-    screenLoop(screens[name]);
 }
 
-void handleScreenR(const std::string& name, std::map<std::string, ScreenSession>& screens) {
+void handleScreenR(const std::string& name, std::map<std::string, ScreenSession>& screens, Scheduler* scheduler) {
     auto it = screens.find(name);
     if (it == screens.end()) {
         std::cout << "Process " << name << " not found.\n";
         return;
     }
 
-    for (const auto& proc : processList) {
+    for (const auto& proc : scheduler->getProcessList()) {
         if (proc.name == name && proc.finished) {
             std::cout << "Process " << name << " has already finished.\n";
+            it->second.currentLine = it->second.totalLines;
             return;
         }
+        if (proc.name == name) {
+            it->second.currentLine = proc.executedCommands;
+            break;
+        }
+    }
+    screenLoop(it->second, scheduler);
+}
+
+void handleSchedulerStop(std::unique_ptr<Scheduler>& scheduler) {
+    if (!scheduler) {
+        std::cout << "Scheduler is not initialized.\n";
+        return;
     }
 
-    screenLoop(it->second);
-}
+    if (!scheduler->isRunning()) {
+        std::cout << "Scheduler is not currently running.\n";
+        return;
+    }
 
-void handleSchedulerStop() {
-    std::cout << "scheduler-stop command recognized. (Not implemented)\n";
-}
+    scheduler->shutdown();
 
-void handleReportUtil() {
-    std::cout << "report-util command recognized. (Not implemented)\n";
+    std::cout << "Scheduler stopped successfully.\n";
 }
 
 void handleHelp() {
     std::cout << "Commands:\n"
-              << "  initialize       - Initialize the processor configuration with \"config.txt\".\n"
-              << "  screen -s <name> - Attach or create a screen session for a process.\n"
-              << "  screen -r <name> - Resume an existing screen session if still running.\n"
-              << "       process-smi - Show process info inside screen.\n"
-              << "       exit        - Exit the screen session.\n"
-              << "  screen -ls       - Show current CPU/process usage.\n"
-              << "  scheduler-start  - Start dummy process generation.\n"
-              << "  scheduler-stop   - Stop process generation (not yet implemented).\n"
-              << "  report-util      - Save CPU utilization report to file.\n"
-              << "  clear            - Clear the screen.\n"
-              << "  exit             - Exit the emulator.\n";
+        << "  initialize       - Initialize the processor configuration with \"config.txt\".\n"
+        << "  screen -s <name> - Attach or create a screen session for a process.\n"
+        << "  screen -r <name> - Resume an existing screen session if still running.\n"
+        << "       process-smi - Show process info inside screen.\n"
+        << "       exit        - Exit the screen session.\n"
+        << "  screen -ls       - Show current CPU/process usage.\n"
+        << "  scheduler-start  - Start dummy process generation.\n"
+        << "  scheduler-stop   - Stop process generation (not yet implemented).\n"
+        << "  report-util      - Save CPU utilization report to file.\n"
+        << "  clear            - Clear the screen.\n"
+        << "  exit             - Exit the emulator.\n";
 }
 
-void testCommands() {
-    int pid = 1;
-    PrintCommand printCmd(pid, "Hello world from test process!");
-    DeclareCommand declareCmd(pid, "x", 42);
-    AddCommand addCmd(pid, "x", "y", "z");
-    SubtractCommand subCmd(pid, "x", "y", "z");
-    SleepCommand sleepCmd(pid, 5);
+// for testing processes
+// void simulateTwoProcesses() {
+//     // Simulate two processes with their own symbol tables and instruction lists
+//     int pid1 = 1, pid2 = 2;
+//     std::map<std::string, uint16_t> symbols1, symbols2;
+//     std::vector<std::unique_ptr<ICommand>> instructions1;
+//     std::vector<std::unique_ptr<ICommand>> instructions2;
 
-    std::vector<ICommand*> cmds = { &printCmd, &declareCmd, &addCmd, &subCmd, &sleepCmd };
+//     // Process 1 instructions
+//     instructions1.emplace_back(std::make_unique<DeclareCommand>(pid1, "y", 15));
+//     instructions1.emplace_back(std::make_unique<AddCommand>(pid1, "x", "x", "5")); // x = x + 5
+//     instructions1.emplace_back(std::make_unique<PrintCommand>(pid1, "Value of x: ", "x"));
+//     instructions1.emplace_back(std::make_unique<SleepCommand>(pid1, 2));
+//     instructions1.emplace_back(std::make_unique<SubtractCommand>(pid1, "x", "y", "3")); // x = x - 3
+//     instructions1.emplace_back(std::make_unique<PrintCommand>(pid1, "Final x: ", "x"));
 
-    // Test FOR command with 2 repeats
-    ForCommand forCmd(pid, cmds, 2);
+//     // Process 2 instructions
+//     instructions2.emplace_back(std::make_unique<DeclareCommand>(pid2, "y", 20));
+//     instructions2.emplace_back(std::make_unique<AddCommand>(pid2, "y", "y", "7")); // y = y + 7
+//     instructions2.emplace_back(std::make_unique<PrintCommand>(pid2, "Value of y: ", "y"));
+//     instructions2.emplace_back(std::make_unique<SleepCommand>(pid2, 1));
+//     instructions2.emplace_back(std::make_unique<SubtractCommand>(pid2, "y", "y", "15")); // y = y - 15
+//     instructions2.emplace_back(std::make_unique<PrintCommand>(pid2, "Final y: ", "y"));
 
-    std::cout << "=== Testing individual commands ===\n";
-    for (auto* cmd : cmds) {
-        cmd->execute();
-    }
+//     // Simulate running each process step by step
+//     std::cout << "=== Simulating Process 1 ===\n";
+//     for (auto& cmd : instructions1) {
+//         cmd->execute(symbols1);
+//     }
 
-    std::cout << "\n=== Testing FOR command ===\n";
-    forCmd.execute();
-}
+//     std::cout << "\n=== Simulating Process 2 ===\n";
+//     for (auto& cmd : instructions2) {
+//         cmd->execute(symbols2);
+//     }
+// }
 
 int main() {
     bool menuState = true;
@@ -661,14 +821,14 @@ int main() {
     dispHeader();
     std::unique_ptr<Scheduler> procScheduler; //unique ptr for process scheduler where it will be created & config will be assigned later, also unique_ptr for memory management
     // for the headers
-    /* 
+    /*
     for (auto& proc : processList) {
         std::string filename = proc.name + ".txt";
         std::ofstream outfile(filename, std::ios::trunc);
         outfile << "Process name: " << proc.name << std::endl;
         outfile << "Logs:" << std::endl << std::endl;
         outfile.close();
-    } 
+    }
 
     std::vector<std::thread> cpuThreads;
     for (int i = 1; i <= 4; i++) {
@@ -677,7 +837,7 @@ int main() {
 
     std::thread schedThread(scheduler);
     */
-    testCommands(); // <-- Add this line to run the test at startup
+    // simulateTwoProcesses(); 
     while (menuState) {
         std::cout << "\nEnter a command: ";
         std::getline(std::cin, inputCommand);
@@ -697,7 +857,12 @@ int main() {
             dispHeader();
         }
         else if (inputCommand == "exit") {
+            if (procScheduler && procScheduler->isRunning()) {
+                std::cout << "Stopping scheduler before exit...\n";
+                procScheduler->shutdown();
+            }
             menuState = false;
+            procScheduler.reset();
             /*
             std::cout << "Waiting for all processes to finish...\n";
             schedThread.join();
@@ -714,7 +879,7 @@ int main() {
             handleScreenS(inputCommand.substr(10), procScheduler.get(), screens);
         }
         else if (inputCommand.rfind("screen -r ", 0) == 0) {
-            handleScreenR(inputCommand.substr(10), screens);
+            handleScreenR(inputCommand.substr(10), screens, procScheduler.get());
         }
         else if (inputCommand.find("screen -ls") != std::string::npos) {
             procScheduler->showScreenLS();
@@ -723,11 +888,17 @@ int main() {
             procScheduler->startScheduler();
         }
         else if (inputCommand.find("scheduler-stop") != std::string::npos) {
-            handleSchedulerStop();
+            handleSchedulerStop(procScheduler);
         }
         else if (inputCommand.find("report-util") != std::string::npos) {
-            handleReportUtil();
-        } else {
+            if (procScheduler) {
+                procScheduler->generateLog("csopesy-log.txt");
+            }
+            else {
+                std::cout << "Scheduler not initialized.\n";
+            }
+        }
+        else {
             std::cout << "Command not recognized. Type '-help' to display commands.\n";
         }
         inputCommand = "";
