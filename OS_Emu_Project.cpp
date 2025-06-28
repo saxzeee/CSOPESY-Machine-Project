@@ -33,9 +33,10 @@ struct Process {
     bool finished;
     std::string startTimestamp;
     std::string finishTimestamp;
-    std::vector<Instruction> instructions; // Add this
-    std::map<std::string, uint16_t> variables; // For process memory
+    std::vector<Instruction> instructions;
+    std::map<std::string, uint16_t> variables;
     int coreAssigned = -1;
+    int sleepRemaining = 0; // <-- Add this line
 };
 
 // Struct to hold config.txt details
@@ -88,8 +89,15 @@ private:
             {
                 std::lock_guard<std::mutex> lock(processMutex);
                 Process& proc = processList[procIndex];
-                
-                // Log before increment
+
+                // --- SLEEP HANDLING ---
+                if (proc.sleepRemaining > 0) {
+                    proc.sleepRemaining--;
+                    proc.coreAssigned = -1;
+                    continue; 
+                }
+                // --- END SLEEP HANDLING ---
+
                 std::ostringstream ss;
                 ss << "(" << getCurrentTimestamp() << ") Core:" << (coreID - 1) << " ";
                 std::string logLine;
@@ -176,6 +184,15 @@ private:
                 if (procIndex >= processList.size()) break;  // Sanity check
 
                 Process& proc = processList[procIndex];
+
+                // --- SLEEP HANDLING ---
+                if (proc.sleepRemaining > 0) {
+                    proc.sleepRemaining--;
+                    proc.coreAssigned = -1;
+                    break; // End quantum for this process
+                }
+                // --- END SLEEP HANDLING ---
+
                 if (proc.finished || proc.executedCommands >= proc.totalCommands)
                     break;
 
@@ -204,7 +221,7 @@ private:
                     finishedProcesses.push_back(procIndex);
                     proc.coreAssigned = -1;
                     coreToProcess[coreID - 1] = "";
-                    break; // No need to keep executing finished process
+                    break;
                 }
                 else {
                     proc.coreAssigned = -1;
@@ -735,8 +752,6 @@ void handleHelp() {
 }
 
 void executeInstruction(Process& proc, const Instruction& instr, std::ostream& out, int nestLevel) {
-    //std::cout << "[DEBUG] Executing " << static_cast<int>(instr.type) << " for " << proc.name << std::endl;
-
     switch (instr.type) {
         case ICommand::InstrType::PRINT: {
             out << "PID " << proc.name << ": ";
@@ -773,6 +788,8 @@ void executeInstruction(Process& proc, const Instruction& instr, std::ostream& o
         }
         case ICommand::InstrType::SLEEP: {
             out << "PID " << proc.name << ": SLEEP for " << (int)instr.sleepTicks << " ticks" << std::endl;
+            proc.sleepRemaining = instr.sleepTicks; // <-- Set sleep counter
+            // std::cout << "[DEBUG] Process '" << proc.name << "' is entering SLEEP for " << (int)instr.sleepTicks << " ticks at instruction #" << proc.executedCommands << std::endl;
             break;
         }
         case ICommand::InstrType::FOR: {
