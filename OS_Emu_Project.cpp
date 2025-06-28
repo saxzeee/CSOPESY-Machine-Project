@@ -486,7 +486,7 @@ void screenLoop(ScreenSession& session, Scheduler* scheduler) {
                 std::cout << "No logs found for this process.\n";
             }
 
-            for (const auto& proc : processList) {
+            for (const auto& proc : scheduler->getProcessList()) {
                 if (proc.name == session.name && proc.finished) {
                     std::cout << "Finished!\n";
                     break;
@@ -495,9 +495,6 @@ void screenLoop(ScreenSession& session, Scheduler* scheduler) {
         }
     }
 }
-
-
-
 
 struct ICommand {
     enum class InstrType {
@@ -597,38 +594,24 @@ void handleScreenS(const std::string& name, Scheduler* scheduler, std::map<std::
             break;
         }
     }
+    if (!found) {
+        // Generate a random instruction count within configured bounds
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        std::uniform_int_distribution<> dist(scheduler->minIns, scheduler->maxIns);
+        int randomInstructions = dist(gen);
 
-    if (finished) {
-        std::cout << "Process '" << name << "' has already finished.\n";
-        return;
+        // Create new process with randomized totalCommands
+        Process proc;
+        proc.name = name;
+        proc.totalCommands = randomInstructions;
+        proc.executedCommands = 0;
+        proc.finished = false;
+
+        screens[name] = { name, 1, proc.totalCommands, getCurrentTimestamp() };
+
+        scheduler->addProcess(proc);
     }
-
-    if (found) {
-        screenLoop(screens[name]);
-        return;
-    }
-
-    // Generate a random instruction count within configured bounds
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<> dist(scheduler->minIns, scheduler->maxIns);
-    int randomInstructions = dist(gen);
-
-    // Create new process with randomized totalCommands
-    Process proc;
-    proc.name = name;
-    proc.totalCommands = randomInstructions;
-    proc.executedCommands = 0;
-    proc.finished = false;
-    proc.instructions = generateRandomInstructions(name, randomInstructions, 0);
-
-    screens[name] = { name, 1, proc.totalCommands, getCurrentTimestamp() };
-
-    std::ofstream logFile(name + ".txt", std::ios::trunc);
-    logFile << "Process name: " << name << "\nLogs:\n\n";
-    logFile.close();
-
-    scheduler->addProcess(proc);
 }
 
 void handleScreenR(const std::string& name, std::map<std::string, ScreenSession>& screens, Scheduler* scheduler) {
