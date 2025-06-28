@@ -80,7 +80,7 @@ private:
 
             if (procIndex == -1) {
                 if (!schedulerRunning) break;
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                std::this_thread::sleep_for(std::chrono::milliseconds(delayPerExec));
                 continue;
             }
 
@@ -141,7 +141,7 @@ private:
                     // Keep coreToProcess as-is so screen -ls still shows it
                 }
             }
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            std::this_thread::sleep_for(std::chrono::milliseconds(delayPerExec));
         }
     }
 
@@ -174,7 +174,7 @@ private:
             }
 
             if (procIndex == -1) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                std::this_thread::sleep_for(std::chrono::milliseconds(delayPerExec));
                 continue;
             }
 
@@ -788,8 +788,11 @@ void executeInstruction(Process& proc, const Instruction& instr, std::ostream& o
         }
         case ICommand::InstrType::SLEEP: {
             out << "PID " << proc.name << ": SLEEP for " << (int)instr.sleepTicks << " ticks" << std::endl;
-            proc.sleepRemaining = instr.sleepTicks; // <-- Set sleep counter
-            // std::cout << "[DEBUG] Process '" << proc.name << "' is entering SLEEP for " << (int)instr.sleepTicks << " ticks at instruction #" << proc.executedCommands << std::endl;
+            if (proc.sleepRemaining == 0) { // Only set if not already sleeping
+                proc.sleepRemaining = instr.sleepTicks;
+                // Optionally add a debug print here
+                std::cout << "[DEBUG] " << proc.name << " starts sleeping for " << (int)instr.sleepTicks << " ticks\n";
+            }
             break;
         }
         case ICommand::InstrType::FOR: {
