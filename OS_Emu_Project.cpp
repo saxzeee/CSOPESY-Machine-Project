@@ -14,7 +14,7 @@
 #include <random>
 #include <atomic>
 
-static std::atomic<int> soloProcessCount(0); // for the cores of -s processes, limits the processes made
+static std::atomic<int> soloProcessCount(0); 
 
 // Struct to hold screen session data
 struct ScreenSession {
@@ -26,9 +26,9 @@ struct ScreenSession {
     std::vector<std::string> processLogs;
 };
 
-struct Instruction; // Forward declaration
+struct Instruction;
 
-// Struct for process -> refactor into class? 
+// Struct for process
 struct Process {
     std::string name;
     int totalCommands;
@@ -87,26 +87,23 @@ private:
                 continue;
             }
 
-            // Copy data we need outside the lock to avoid holding it during I/O
             std::string procName;
             {
                 std::lock_guard<std::mutex> lock(processMutex);
                 Process& proc = processList[procIndex];
 
-                // --- SLEEP HANDLING ---
                 if (proc.sleepRemaining > 0) {
                     proc.sleepRemaining--;
                     proc.coreAssigned = -1;
                     continue; 
                 }
-                // --- END SLEEP HANDLING ---
 
                 std::ostringstream ss;
                 ss << "(" << getCurrentTimestamp() << ") Core:" << (coreID - 1) << " ";
                 std::string logLine;
                 if (proc.executedCommands < proc.instructions.size()) {
                     Instruction& instr = proc.instructions[proc.executedCommands];
-                    executeInstruction(proc, instr, ss);  // this logs the real instruction
+                    executeInstruction(proc, instr, ss);  
                     logLine = ss.str();
                 }
 
@@ -127,7 +124,6 @@ private:
                     }
                 }
 
-                // Check if process is finished
                 if (proc.executedCommands >= proc.totalCommands) {
                     proc.finished = true;
                     auto it = screenSessions->find(proc.name);
@@ -137,11 +133,10 @@ private:
                     proc.finishTimestamp = getCurrentTimestamp();
                     finishedProcesses.push_back(procIndex);
                     proc.coreAssigned = -1;
-                    coreToProcess[coreID - 1] = "";  // Only clear core-to-process if done
+                    coreToProcess[coreID - 1] = ""; 
                 }
                 else {
-                    proc.coreAssigned = -1; // Allow it to be picked again in the next cycle
-                    // Keep coreToProcess as-is so screen -ls still shows it
+                    proc.coreAssigned = -1; 
                 }
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(delayPerExec));
@@ -181,10 +176,9 @@ private:
                 continue;
             }
 
-            // Execute up to quantumCycles
             for (int i = 0; i < (int)quantumCycles; ++i) {
                 std::lock_guard<std::mutex> lock(processMutex);
-                if (procIndex >= processList.size()) break;  // Sanity check
+                if (procIndex >= processList.size()) break;
 
                 Process& proc = processList[procIndex];
 
@@ -235,7 +229,6 @@ private:
         }
     }
 
-    // edit
     void scheduler() {
         while (true) {
             processMutex.lock();
@@ -433,7 +426,7 @@ public:
     // show process status
     void showScreenLS() {
         processMutex.lock();
-        std::cout << std::left; // Align text to the left
+        std::cout << std::left; 
         int nameWidth = 12;
 
         int totalCores = static_cast<int>(coreToProcess.size());
@@ -487,7 +480,6 @@ public:
     std::vector<std::string>& getCoreToProcess() { return coreToProcess; }
 };
 
-// Cross-platform clear screen
 void clearScreen() {
 #if defined(_WIN32) || defined(_WIN64)
     system("cls");
@@ -496,7 +488,6 @@ void clearScreen() {
 #endif
 }
 
-// Utility to set terminal text color (ANSI)
 void setTextColor(int colorID) {
     std::cout << "\033[" << colorID << "m";
 }
@@ -544,7 +535,6 @@ void displayScreen(const ScreenSession& session) {
             std::cout << entry << "\n";
         }
     }
-    //std::cout << "\n(Type 'exit' to return to the main menu)\n";
 }
 
 // Loop for inside screen session
@@ -669,7 +659,7 @@ std::vector<Instruction> generateRandomInstructions(const std::string& procName,
 void handleScreenS(const std::string& name, Scheduler* scheduler, std::map<std::string, ScreenSession>& screens) {
     bool found = false, finished = false;
 
-    // Check if process already exists
+    //check if process already exists
     for (const auto& proc : scheduler->getProcessList()) {
         if (proc.name == name) {
             found = true;
@@ -685,7 +675,7 @@ void handleScreenS(const std::string& name, Scheduler* scheduler, std::map<std::
         }
     }
 
-    // Create new process
+    // create new process
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<> dist(scheduler->minIns, scheduler->maxIns);
@@ -723,17 +713,25 @@ void handleScreenS(const std::string& name, Scheduler* scheduler, std::map<std::
         soloProcessCount++;
 
         std::thread soloWorker([scheduler, &screens, name, assignedCore]() {
-            while (true) {
+            bool processActive = true;
+            
+            while (processActive) {
+                if (!scheduler) {
+                    break;
+                }
+
                 {
                     std::lock_guard<std::mutex> lock(scheduler->getProcessMutex());
                     auto& procList = const_cast<std::vector<Process>&>(scheduler->getProcessList());
                     auto& coreToProcess = scheduler->getCoreToProcess();
 
+                    bool processFound = false;
                     for (auto& proc : procList) {
                         if (proc.name == name && !proc.finished &&
                             proc.executedCommands < proc.totalCommands &&
                             proc.coreAssigned == -1) {
 
+                            processFound = true;
                             proc.coreAssigned = assignedCore;
                             coreToProcess[assignedCore] = proc.name;
 
@@ -754,27 +752,37 @@ void handleScreenS(const std::string& name, Scheduler* scheduler, std::map<std::
                             }
 
                             proc.executedCommands++;
-                            // if finished, free up the coer
+                            
                             if (proc.executedCommands >= proc.totalCommands) {
                                 proc.finished = true;
                                 proc.finishTimestamp = getCurrentTimestamp();
                                 coreToProcess[assignedCore] = "";
                                 soloProcessCount--;
+                                processActive = false; 
                             }
 
                             proc.coreAssigned = -1;
+                            break;
                         }
+                    }
+                    
+                    if (!processFound) {
+                        coreToProcess[assignedCore] = "";
+                        soloProcessCount--;
+                        processActive = false;
                     }
                 }
 
-                std::this_thread::sleep_for(std::chrono::milliseconds(scheduler->delayPerExec));
+                if (processActive) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(scheduler->delayPerExec));
+                }
             }
-            });
+        });
 
-        soloWorker.detach(); // Let it run independently
+        soloWorker.detach(); 
     }
 
-    screenLoop(screens[name], scheduler); // Optional: remove if you want background-only behavior
+    screenLoop(screens[name], scheduler);
 }
 
 void handleScreenR(const std::string& name, std::map<std::string, ScreenSession>& screens, Scheduler* scheduler) {
@@ -833,7 +841,11 @@ void executeInstruction(Process& proc, const Instruction& instr, std::ostream& o
     switch (instr.type) {
         case ICommand::InstrType::PRINT: {
             out << "PID " << proc.name << ": ";
-            out << instr.msg << std::endl;
+            if (!instr.printVar.empty() && proc.variables.count(instr.printVar)) {
+                out << instr.msg << " -> " << proc.variables[instr.printVar] << std::endl;
+            } else {
+                out << instr.msg << std::endl;
+            }
             break;
         }
         case ICommand::InstrType::DECLARE: {
@@ -861,27 +873,21 @@ void executeInstruction(Process& proc, const Instruction& instr, std::ostream& o
         }
         case ICommand::InstrType::SLEEP: {
             out << "PID " << proc.name << ": SLEEP for " << (int)instr.sleepTicks << " ticks" << std::endl;
-            if (proc.sleepRemaining == 0) { // Only set if not already sleeping
+            if (proc.sleepRemaining == 0) { 
                 proc.sleepRemaining = instr.sleepTicks;
-                // Optionally add a debug print here
-                // std::cout << "[DEBUG] " << proc.name << " starts sleeping for " << (int)instr.sleepTicks << " ticks\n";
             }
             break;
         }
         case ICommand::InstrType::FOR: {
-            // Log the FOR loop in a single print statement
             out << "PID " << proc.name << ": FOR loop - Nest Level: " 
                 << nestLevel << ", Repeats: " << instr.repeats << std::endl;
 
-            if (nestLevel >= 3) break; // Max 3 nested loops (can be adjusted)
+            if (nestLevel >= 3) break; // max 3 nested loops 
 
-            // Execute the body of the FOR loop the specified number of times (repeats)
             for (int i = 0; i < instr.repeats; ++i) {
-                // Log the current iteration of the FOR loop
                 out << "PID " << proc.name << ": Iteration " << (i + 1) 
                     << " of " << instr.repeats << std::endl;
 
-                // Execute the instructions inside the loop body
                 for (const auto& subInstr : instr.body) {
                     executeInstruction(proc, subInstr, out, nestLevel + 1);
                 }
@@ -901,15 +907,24 @@ std::vector<Instruction> generateRandomInstructions(const std::string& procName,
     std::uniform_int_distribution<> valueDist(1, 100);
     std::uniform_int_distribution<> sleepDist(1, 5);
 
+    if (nestLevel == 0) { 
+        Instruction xInit;
+        xInit.type = ICommand::InstrType::DECLARE;
+        xInit.var1 = "x";
+        xInit.value = 0;
+        instrs.push_back(xInit);
+        declaredVars.push_back("x");
+    }
+
     for (int i = 0; i < count; ++i) {
         Instruction instr;
         int t = typeDist(gen);
 
         switch (t) {
-            case 0: { // PRINT
+            case 0: { // PRINT 
                 instr.type = ICommand::InstrType::PRINT;
-                instr.msg = "Hello world from " + procName + "!";
-                instr.printVar = ""; // Always empty
+                instr.msg = "Value from: " + procName;
+                instr.printVar = "x"; 
                 break;
             }
 
@@ -921,20 +936,11 @@ std::vector<Instruction> generateRandomInstructions(const std::string& procName,
                 break;
             }
 
-            case 2: { // ADD
-                if (declaredVars.empty()) continue;
-
+            case 2: { // ADD 
                 instr.type = ICommand::InstrType::ADD;
-                instr.var1 = "v" + std::to_string(declaredVars.size()); // new variable
-                instr.var2 = declaredVars[gen() % declaredVars.size()];
-
-                if (gen() % 2 == 0 && !declaredVars.empty()) {
-                    instr.var3 = declaredVars[gen() % declaredVars.size()];
-                } else {
-                    instr.var3 = std::to_string(valueDist(gen));
-                }
-
-                declaredVars.push_back(instr.var1);
+                instr.var1 = "x";
+                instr.var2 = "x";
+                instr.var3 = "1";
                 break;
             }
 
@@ -942,7 +948,7 @@ std::vector<Instruction> generateRandomInstructions(const std::string& procName,
                 if (declaredVars.empty()) continue;
 
                 instr.type = ICommand::InstrType::SUBTRACT;
-                instr.var1 = "v" + std::to_string(declaredVars.size()); // new variable
+                instr.var1 = "v" + std::to_string(declaredVars.size());
                 instr.var2 = declaredVars[gen() % declaredVars.size()];
 
                 if (gen() % 2 == 0 && !declaredVars.empty()) {
@@ -983,17 +989,15 @@ int main() {
     std::map<std::string, ScreenSession> screens;
     schedConfig config;
     dispHeader();
-    std::unique_ptr<Scheduler> procScheduler; //unique ptr for process scheduler where it will be created & config will be assigned later, also unique_ptr for memory management
+    std::unique_ptr<Scheduler> procScheduler;
 
     while (menuState) {
         std::cout << "\nEnter a command: ";
         std::getline(std::cin, inputCommand);
 
-        // Convert to lowercase
         std::transform(inputCommand.begin(), inputCommand.end(), inputCommand.begin(), ::tolower);
 
         if (inputCommand.find("initialize") != std::string::npos) {
-            // initialize -> read config.txt file and setup scheduler details using the given config
             handleInitialize(config, procScheduler, screens, initialized);
         }
         else if (inputCommand == "-help") {
@@ -1007,9 +1011,18 @@ int main() {
             if (procScheduler && procScheduler->isRunning()) {
                 std::cout << "Stopping scheduler before exit...\n";
                 procScheduler->shutdown();
+                
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
             }
+            
+            while (soloProcessCount > 0) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            }
+            
             menuState = false;
             procScheduler.reset();
+            
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
         else if (!initialized) {
             std::cout << "Run the initialize command first before proceeding.\n";
