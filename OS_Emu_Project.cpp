@@ -250,7 +250,7 @@ private:
             }
             processMutex.unlock();
             if (allDone) break;
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            std::this_thread::sleep_for(std::chrono::milliseconds(delayPerExec));
         }
     }
 
@@ -447,6 +447,7 @@ public:
         }
         int coresAvailable = totalCores - coresUsed;
         double cpuUtil = (static_cast<double>(coresUsed) / totalCores) * 100.0;
+        std::cout << getProcessList().size();
         std::cout << "---------------------------------------------\n";
         std::cout << "CPU Status:\n";
         std::cout << "Total Cores      : " << totalCores << "\n";
