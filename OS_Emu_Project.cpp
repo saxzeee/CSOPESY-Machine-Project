@@ -35,6 +35,7 @@ struct Process {
     std::string finishTimestamp;
     std::vector<Instruction> instructions; // Add this
     std::map<std::string, uint16_t> variables; // For process memory
+    int coreAssigned = -1;
 };
 
 // Struct to hold config.txt details
@@ -56,6 +57,7 @@ class Scheduler {
 private:
     std::vector<Process> processList;
     std::vector<int> finishedProcesses;
+    std::vector<std::string> coreToProcess;
     std::mutex processMutex;
     bool schedulerRunning = false;
     std::thread schedulerMain;
@@ -66,8 +68,10 @@ private:
             processMutex.lock();
             int procIndex = -1;
             for (size_t i = 0; i < processList.size(); i++) {
-                if (!processList[i].finished && processList[i].executedCommands < processList[i].totalCommands) {
+                if (!processList[i].finished && processList[i].executedCommands < processList[i].totalCommands && processList[i].coreAssigned == -1) {
                     procIndex = i;
+                    processList[i].coreAssigned = coreID - 1;
+                    coreToProcess[coreID - 1] = processList[i].name;
                     break;
                 }
             }
@@ -84,7 +88,7 @@ private:
             {
                 std::lock_guard<std::mutex> lock(processMutex);
                 Process& proc = processList[procIndex];
-
+                
                 // Log before increment
                 std::ostringstream ss;
                 ss << "(" << getCurrentTimestamp() << ") Core:" << (coreID - 1) << " ";
@@ -112,7 +116,8 @@ private:
                     }
                 }
 
-                if (proc.executedCommands == proc.totalCommands) {
+                // Check if process is finished
+                if (proc.executedCommands >= proc.totalCommands) {
                     proc.finished = true;
                     auto it = screenSessions->find(proc.name);
                     if (it != screenSessions->end()) {
@@ -120,6 +125,12 @@ private:
                     }
                     proc.finishTimestamp = getCurrentTimestamp();
                     finishedProcesses.push_back(procIndex);
+                    proc.coreAssigned = -1;
+                    coreToProcess[coreID - 1] = "";  // Only clear core-to-process if done
+                }
+                else {
+                    proc.coreAssigned = -1; // Allow it to be picked again in the next cycle
+                    // Keep coreToProcess as-is so screen -ls still shows it
                 }
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -131,6 +142,7 @@ private:
 
         while (schedulerRunning) {
             size_t procIndex = -1;
+
             {
                 std::lock_guard<std::mutex> lock(processMutex);
                 size_t procCount = processList.size();
@@ -139,11 +151,16 @@ private:
                 size_t startIndex = currentIndex;
                 do {
                     if (currentIndex >= procCount) currentIndex = 0;
+
                     if (!processList[currentIndex].finished &&
-                        processList[currentIndex].executedCommands < processList[currentIndex].totalCommands) {
+                        processList[currentIndex].executedCommands < processList[currentIndex].totalCommands &&
+                        processList[currentIndex].coreAssigned == -1) {
                         procIndex = currentIndex;
+                        processList[currentIndex].coreAssigned = coreID - 1;
+                        coreToProcess[coreID - 1] = processList[currentIndex].name;
                         break;
                     }
+
                     currentIndex = (currentIndex + 1) % procCount;
                 } while (currentIndex != startIndex);
             }
@@ -153,6 +170,7 @@ private:
                 continue;
             }
 
+            // Execute up to quantumCycles
             for (int i = 0; i < (int)quantumCycles; ++i) {
                 std::lock_guard<std::mutex> lock(processMutex);
                 if (procIndex >= processList.size()) break;  // Sanity check
@@ -179,10 +197,17 @@ private:
                 }
 
                 proc.executedCommands++;
+
                 if (proc.executedCommands >= proc.totalCommands) {
                     proc.finished = true;
                     proc.finishTimestamp = getCurrentTimestamp();
                     finishedProcesses.push_back(procIndex);
+                    proc.coreAssigned = -1;
+                    coreToProcess[coreID - 1] = "";
+                    break; // No need to keep executing finished process
+                }
+                else {
+                    proc.coreAssigned = -1;
                 }
 
                 std::this_thread::sleep_for(std::chrono::milliseconds(delayPerExec));
@@ -235,6 +260,7 @@ public:
         minIns = config.minIns;
         maxIns = config.maxIns;
         delayPerExec = config.delayPerExec;
+        coreToProcess.resize(config.numCores, "");
     }
 
     void addProcess(const Process& process) {
@@ -288,7 +314,7 @@ public:
                 proc.executedCommands = 0;
                 proc.startTimestamp = getCurrentTimestamp();
                 proc.finished = false;
-
+                proc.coreAssigned = -1;
                 proc.instructions = generateRandomInstructions(proc.name, proc.totalCommands, 0);
 
                 {
@@ -324,29 +350,47 @@ public:
         reportFile << std::left;
         int nameWidth = 12;
 
+        int totalCores = static_cast<int>(coreToProcess.size());
+        int coresUsed = 0;
+        for (const auto& procName : coreToProcess) {
+            if (!procName.empty()) {
+                coresUsed++;
+            }
+        }
+        int coresAvailable = totalCores - coresUsed;
+        double cpuUtil = (static_cast<double>(coresUsed) / totalCores) * 100.0;
+        reportFile << "---------------------------------------------\n";
+        reportFile << "CPU Status:\n";
+        reportFile << "Total Cores      : " << totalCores << "\n";
+        reportFile << "Cores Used       : " << coresUsed << "\n";
+        reportFile << "Cores Available  : " << coresAvailable << "\n";
+        reportFile << "CPU Utilization  : " << static_cast<int>(cpuUtil) << "%\n\n";
         reportFile << "---------------------------------------------\n";
         reportFile << "Running processes:\n";
-        for (const auto& proc : processList) {
-            if (!proc.finished) {
-                reportFile << std::setw(nameWidth) << proc.name << "  ";
-                reportFile << "(Started: " << proc.startTimestamp << ")  ";
-                reportFile << "Core: " << (&proc - &processList[0]) % numCores << "  ";
-                reportFile << proc.executedCommands << " / " << proc.totalCommands << "\n";
+        for (int core = 0; core < coreToProcess.size(); ++core) {
+            const std::string& pname = coreToProcess[core];
+            if (pname.empty()) continue;
+
+            for (const auto& proc : processList) {
+                if (proc.name == pname) {
+                    reportFile << std::setw(nameWidth) << proc.name << "  ";
+                    reportFile << "(Started: " << proc.startTimestamp << ")  ";
+                    reportFile << "Core: " << core << "  ";
+                    reportFile << proc.executedCommands << " / " << proc.totalCommands << "\n";
+                    break;
+                }
             }
         }
-
         reportFile << "\nFinished processes:\n";
-        for (const auto& proc : processList) {
-            if (proc.finished) {
-                reportFile << std::setw(nameWidth) << proc.name << "  ";
-                reportFile << "(" << proc.finishTimestamp << ")  ";
+        for (size_t i = 0; i < processList.size(); i++) {
+            if (processList[i].finished) {
+                reportFile << std::setw(nameWidth) << processList[i].name << "  ";
+                reportFile << "(" << processList[i].finishTimestamp << ")  ";
                 reportFile << "Finished  ";
-                reportFile << proc.executedCommands << " / " << proc.totalCommands << "\n";
+                reportFile << processList[i].executedCommands << " / " << processList[i].totalCommands << "\n";
             }
         }
         reportFile << "---------------------------------------------\n";
-
-        std::cout << "Process report written to " << filename << "\n";
     }
 
     void shutdown() {
@@ -374,14 +418,35 @@ public:
         std::cout << std::left; // Align text to the left
         int nameWidth = 12;
 
+        int totalCores = static_cast<int>(coreToProcess.size());
+        int coresUsed = 0;
+        for (const auto& procName : coreToProcess) {
+            if (!procName.empty()) {
+                coresUsed++;
+            }
+        }
+        int coresAvailable = totalCores - coresUsed;
+        double cpuUtil = (static_cast<double>(coresUsed) / totalCores) * 100.0;
+        std::cout << "---------------------------------------------\n";
+        std::cout << "CPU Status:\n";
+        std::cout << "Total Cores      : " << totalCores << "\n";
+        std::cout << "Cores Used       : " << coresUsed << "\n";
+        std::cout << "Cores Available  : " << coresAvailable << "\n";
+        std::cout << "CPU Utilization  : " << static_cast<int>(cpuUtil) << "%\n\n";
         std::cout << "---------------------------------------------\n";
         std::cout << "Running processes:\n";
-        for (size_t i = 0; i < processList.size(); i++) {
-            if (!processList[i].finished) {
-                std::cout << std::setw(nameWidth) << processList[i].name << "  ";
-                std::cout << "(Started: " << processList[i].startTimestamp << ")  ";
-                std::cout << "Core: " << (i % 4) << "  ";
-                std::cout << processList[i].executedCommands << " / " << processList[i].totalCommands << "\n";
+        for (int core = 0; core < coreToProcess.size(); ++core) {
+            const std::string& pname = coreToProcess[core];
+            if (pname.empty()) continue;
+
+            for (const auto& proc : processList) {
+                if (proc.name == pname) {
+                    std::cout << std::setw(nameWidth) << proc.name << "  ";
+                    std::cout << "(Started: " << proc.startTimestamp << ")  ";
+                    std::cout << "Core: " << core << "  ";
+                    std::cout << proc.executedCommands << " / " << proc.totalCommands << "\n";
+                    break;
+                }
             }
         }
         std::cout << "\nFinished processes:\n";
