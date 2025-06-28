@@ -88,11 +88,12 @@ private:
                 // Log before increment
                 std::ostringstream ss;
                 ss << "(" << getCurrentTimestamp() << ") Core:" << (coreID - 1) << " ";
+                std::string logLine;
                 if (proc.executedCommands < proc.instructions.size()) {
                     Instruction& instr = proc.instructions[proc.executedCommands];
                     executeInstruction(proc, instr, ss);  // this logs the real instruction
+                    logLine = ss.str();
                 }
-                std::string logLine = ss.str();
 
                 if (screenSessions) {
                     auto it = screenSessions->find(proc.name);
@@ -162,11 +163,12 @@ private:
 
                 std::ostringstream ss;
                 ss << "(" << getCurrentTimestamp() << ") Core:" << (coreID - 1) << " ";
+                std::string logLine;
                 if (proc.executedCommands < proc.instructions.size()) {
                     Instruction& instr = proc.instructions[proc.executedCommands];
                     executeInstruction(proc, instr, ss);
+                    logLine = ss.str();
                 }
-                std::string logLine = ss.str();
 
                 if (screenSessions) {
                     auto it = screenSessions->find(proc.name);
@@ -607,6 +609,7 @@ void handleScreenS(const std::string& name, Scheduler* scheduler, std::map<std::
         proc.totalCommands = randomInstructions;
         proc.executedCommands = 0;
         proc.finished = false;
+        proc.instructions = generateRandomInstructions(proc.name, proc.totalCommands, 0); // <-- Instructions assigned!
 
         screens[name] = { name, 1, proc.totalCommands, getCurrentTimestamp() };
 
@@ -708,9 +711,19 @@ void executeInstruction(Process& proc, const Instruction& instr, std::ostream& o
             break;
         }
         case ICommand::InstrType::FOR: {
-            out << "PID " << proc.name << ": FOR loop x" << instr.repeats << std::endl;
-            if (nestLevel >= 3) break; // Max 3 nested
+            // Log the FOR loop in a single print statement
+            out << "PID " << proc.name << ": FOR loop - Nest Level: " 
+                << nestLevel << ", Repeats: " << instr.repeats << std::endl;
+
+            if (nestLevel >= 3) break; // Max 3 nested loops (can be adjusted)
+
+            // Execute the body of the FOR loop the specified number of times (repeats)
             for (int i = 0; i < instr.repeats; ++i) {
+                // Log the current iteration of the FOR loop
+                out << "PID " << proc.name << ": Iteration " << (i + 1) 
+                    << " of " << instr.repeats << std::endl;
+
+                // Execute the instructions inside the loop body
                 for (const auto& subInstr : instr.body) {
                     executeInstruction(proc, subInstr, out, nestLevel + 1);
                 }
