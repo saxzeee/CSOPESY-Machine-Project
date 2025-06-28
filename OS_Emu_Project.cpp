@@ -12,6 +12,9 @@
 #include <chrono>
 #include <memory>
 #include <random>
+#include <atomic>
+
+static std::atomic<int> soloProcessCount(0); // for the cores of -s processes, limits the processes made
 
 // Struct to hold screen session data
 struct ScreenSession {
@@ -36,7 +39,7 @@ struct Process {
     std::vector<Instruction> instructions;
     std::map<std::string, uint16_t> variables;
     int coreAssigned = -1;
-    int sleepRemaining = 0; // <-- Add this line
+    int sleepRemaining = 0;
 };
 
 // Struct to hold config.txt details
@@ -481,7 +484,8 @@ public:
     void setScreenMap(std::map<std::string, ScreenSession>* screens) {
         screenSessions = screens;
     }
-
+    std::mutex& getProcessMutex() { return processMutex; }
+    std::vector<std::string>& getCoreToProcess() { return coreToProcess; }
 };
 
 // Cross-platform clear screen
@@ -665,38 +669,113 @@ std::vector<Instruction> generateRandomInstructions(const std::string& procName,
 
 void handleScreenS(const std::string& name, Scheduler* scheduler, std::map<std::string, ScreenSession>& screens) {
     bool found = false, finished = false;
+
+    // Check if process already exists
     for (const auto& proc : scheduler->getProcessList()) {
         if (proc.name == name) {
             found = true;
             finished = proc.finished;
+
             if (finished) {
                 std::cout << "Process '" << name << "' has already finished.\n";
             }
             else {
                 screenLoop(screens[name], scheduler);
             }
-            break;
+            return;
         }
     }
-    if (!found) {
-        // Generate a random instruction count within configured bounds
-        std::random_device rd;
-        std::mt19937 gen(rd());
-        std::uniform_int_distribution<> dist(scheduler->minIns, scheduler->maxIns);
-        int randomInstructions = dist(gen);
 
-        // Create new process with randomized totalCommands
-        Process proc;
-        proc.name = name;
-        proc.totalCommands = randomInstructions;
-        proc.executedCommands = 0;
-        proc.finished = false;
-        proc.instructions = generateRandomInstructions(proc.name, proc.totalCommands, 0); // <-- Instructions assigned!
+    // Create new process
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> dist(scheduler->minIns, scheduler->maxIns);
+    int randomInstructions = dist(gen);
 
-        screens[name] = { name, 1, proc.totalCommands, getCurrentTimestamp() };
+    Process proc;
+    proc.name = name;
+    proc.totalCommands = randomInstructions;
+    proc.executedCommands = 0;
+    proc.finished = false;
+    proc.coreAssigned = -1;
+    proc.startTimestamp = getCurrentTimestamp();
+    proc.instructions = generateRandomInstructions(proc.name, proc.totalCommands, 0);
 
-        scheduler->addProcess(proc);
+    screens[name] = { name, 1, proc.totalCommands, proc.startTimestamp };
+    scheduler->addProcess(proc);
+
+    if (!scheduler->isRunning()) {
+        auto& coreToProcess = scheduler->getCoreToProcess();
+        int assignedCore = -1;
+
+        // fcfs for -s processes
+        for (int i = 0; i < scheduler->numCores; ++i) {
+            if (coreToProcess[i].empty()) {
+                assignedCore = i;
+                break;
+            }
+        }
+
+        if (assignedCore == -1) {
+            std::cout << "Cannot start '" << name << "': no available cores for solo screen processes.\n";
+            return;
+        }
+
+        soloProcessCount++;
+
+        std::thread soloWorker([scheduler, &screens, name, assignedCore]() {
+            while (true) {
+                {
+                    std::lock_guard<std::mutex> lock(scheduler->getProcessMutex());
+                    auto& procList = const_cast<std::vector<Process>&>(scheduler->getProcessList());
+                    auto& coreToProcess = scheduler->getCoreToProcess();
+
+                    for (auto& proc : procList) {
+                        if (proc.name == name && !proc.finished &&
+                            proc.executedCommands < proc.totalCommands &&
+                            proc.coreAssigned == -1) {
+
+                            proc.coreAssigned = assignedCore;
+                            coreToProcess[assignedCore] = proc.name;
+
+                            std::ostringstream ss;
+                            ss << "(" << getCurrentTimestamp() << ") Core:" << assignedCore << " ";
+                            std::string logLine;
+
+                            if (proc.executedCommands < proc.instructions.size()) {
+                                Instruction& instr = proc.instructions[proc.executedCommands];
+                                executeInstruction(proc, instr, ss);
+                                logLine = ss.str();
+
+                                auto it = screens.find(proc.name);
+                                if (it != screens.end()) {
+                                    it->second.processLogs.push_back(logLine);
+                                    it->second.currentLine = proc.executedCommands;
+                                }
+                            }
+
+                            proc.executedCommands++;
+                            // if finished, free up the coer
+                            if (proc.executedCommands >= proc.totalCommands) {
+                                proc.finished = true;
+                                proc.finishTimestamp = getCurrentTimestamp();
+                                coreToProcess[assignedCore] = "";
+                                soloProcessCount--;
+                            }
+
+                            proc.coreAssigned = -1;
+                        }
+                    }
+                }
+
+                std::this_thread::sleep_for(std::chrono::milliseconds(scheduler->delayPerExec));
+            }
+            });
+
+        soloWorker.detach(); // Let it run independently
     }
+
+    screenLoop(screens[name], scheduler); // Optional: remove if you want background-only behavior
 }
 
 void handleScreenR(const std::string& name, std::map<std::string, ScreenSession>& screens, Scheduler* scheduler) {
@@ -791,7 +870,7 @@ void executeInstruction(Process& proc, const Instruction& instr, std::ostream& o
             if (proc.sleepRemaining == 0) { // Only set if not already sleeping
                 proc.sleepRemaining = instr.sleepTicks;
                 // Optionally add a debug print here
-                std::cout << "[DEBUG] " << proc.name << " starts sleeping for " << (int)instr.sleepTicks << " ticks\n";
+                // std::cout << "[DEBUG] " << proc.name << " starts sleeping for " << (int)instr.sleepTicks << " ticks\n";
             }
             break;
         }
