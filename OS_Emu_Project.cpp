@@ -28,6 +28,75 @@ struct ScreenSession {
 
 struct Instruction;
 
+// Struct for memory block (for first-fit allocator)
+struct MemoryBlock {
+    size_t start;
+    size_t size;
+    bool allocated;
+    std::string owner; // process name or empty
+};
+
+// Memory manager for first-fit allocation
+class MemoryManager {
+public:
+    MemoryManager(size_t totalSize) {
+        blocks.push_back({0, totalSize, false, ""});
+    }
+
+    // First-fit allocation
+    // Returns start address if successful, or -1 if failed
+    int allocate(size_t size, const std::string& owner) {
+        for (auto& block : blocks) {
+            if (!block.allocated && block.size >= size) {
+                if (block.size > size) {
+                    // Split block
+                    MemoryBlock newBlock = {block.start + size, block.size - size, false, ""};
+                    block.size = size;
+                    blocks.insert(blocks.begin() + (&block - &blocks[0]) + 1, newBlock);
+                }
+                block.allocated = true;
+                block.owner = owner;
+                return static_cast<int>(block.start);
+            }
+        }
+        return -1;
+    }
+
+    // Free memory by owner (process name)
+    void free(const std::string& owner) {
+        for (auto& block : blocks) {
+            if (block.allocated && block.owner == owner) {
+                block.allocated = false;
+                block.owner = "";
+            }
+        }
+        // Merge adjacent free blocks
+        mergeFreeBlocks();
+    }
+
+    void mergeFreeBlocks() {
+        for (size_t i = 0; i + 1 < blocks.size(); ) {
+            if (!blocks[i].allocated && !blocks[i+1].allocated) {
+                blocks[i].size += blocks[i+1].size;
+                blocks.erase(blocks.begin() + i + 1);
+            } else {
+                ++i;
+            }
+        }
+    }
+
+    void printMemory() const {
+        std::cout << "--- Memory Blocks ---\n";
+        for (const auto& block : blocks) {
+            std::cout << "[" << block.start << ", " << (block.start + block.size - 1) << "] Size: " << block.size
+                      << (block.allocated ? (" Allocated to: " + block.owner) : " Free") << "\n";
+        }
+    }
+
+private:
+    std::vector<MemoryBlock> blocks;
+};
+
 // Struct for process
 struct Process {
     std::string name;
@@ -40,6 +109,8 @@ struct Process {
     std::map<std::string, uint16_t> variables;
     int coreAssigned = -1;
     int sleepRemaining = 0;
+    size_t memoryRequired = 0;
+    int memoryAddress = -1; // start address in memory manager
 };
 
 // Struct to hold config.txt details
@@ -51,6 +122,9 @@ struct schedConfig {
     uint32_t minIns;
     uint32_t maxIns;
     uint32_t delayPerExec;
+    size_t maxOverallMem = 1024;
+    size_t memPerFrame = 0;
+    size_t memPerProc = 64;
 
 };
 
@@ -58,6 +132,11 @@ void executeInstruction(Process& proc, const Instruction& instr, std::ostream& o
 std::vector<Instruction> generateRandomInstructions(const std::string& procName, int count, int nestLevel);
 
 class Scheduler {
+public:
+    // Public method to free memory for a process by name
+    void freeProcessMemory(const std::string& name) {
+        memoryManager->free(name);
+    }
 private:
     std::vector<Process> processList;
     std::vector<int> finishedProcesses;
@@ -66,6 +145,8 @@ private:
     bool schedulerRunning = false;
     std::thread schedulerMain;
     std::map<std::string, ScreenSession>* screenSessions = nullptr;
+    std::unique_ptr<MemoryManager> memoryManager;
+    size_t memPerProc;
 
     void cpuWorker(int coreID) {
         while (true) {
@@ -272,10 +353,21 @@ public:
         maxIns = config.maxIns;
         delayPerExec = config.delayPerExec;
         coreToProcess.resize(config.numCores, "");
+        memoryManager = std::make_unique<MemoryManager>(config.maxOverallMem);
+        memPerProc = config.memPerProc;
     }
 
-    void addProcess(const Process& process) {
+    // Add process with memory allocation
+    bool addProcess(Process& process) {
+        process.memoryRequired = memPerProc;
+        int addr = memoryManager->allocate(process.memoryRequired, process.name);
+        if (addr == -1) {
+            std::cout << "Failed to allocate memory for process '" << process.name << "' (" << process.memoryRequired << " units).\n";
+            return false;
+        }
+        process.memoryAddress = addr;
         processList.push_back(process);
+        return true;
     }
     const std::vector<Process>& getProcessList() const {
         return processList;
@@ -413,6 +505,15 @@ public:
         if (schedulerMain.joinable()) {
             schedulerMain.join();
         }
+        // Free memory for all finished processes
+        for (const auto& proc : processList) {
+            if (proc.finished && proc.memoryAddress != -1) {
+                memoryManager->free(proc.name);
+            }
+        }
+    }
+    void printMemory() const {
+        memoryManager->printMemory();
     }
 
     void printConfig() const { // display config for verifying if it creates and assigns attributes correctly
@@ -641,6 +742,15 @@ bool readConfigFile(std::string filePath, schedConfig* config) { //read the conf
             else if (attribute == "delay-per-exec") {
                 config->delayPerExec = std::stoul(configVals);
             }
+            else if (attribute == "max-overall-mem") {
+                config->maxOverallMem = std::stoull(configVals);
+            }
+            else if (attribute == "mem-per-frame") {
+                config->memPerFrame = std::stoull(configVals);
+            }
+            else if (attribute == "mem-per-proc") {
+                config->memPerProc = std::stoull(configVals);
+            }
         }
     }
     return true;
@@ -685,6 +795,7 @@ void handleScreenS(const std::string& name, Scheduler* scheduler, std::map<std::
     std::uniform_int_distribution<> dist(scheduler->minIns, scheduler->maxIns);
     int randomInstructions = dist(gen);
 
+
     Process proc;
     proc.name = name;
     proc.totalCommands = randomInstructions;
@@ -694,8 +805,12 @@ void handleScreenS(const std::string& name, Scheduler* scheduler, std::map<std::
     proc.startTimestamp = getCurrentTimestamp();
     proc.instructions = generateRandomInstructions(proc.name, proc.totalCommands, 0);
 
+    // Try to allocate memory and add process
+    if (!scheduler->addProcess(proc)) {
+        std::cout << "Process creation failed due to insufficient memory.\n";
+        return;
+    }
     screens[name] = { name, 1, proc.totalCommands, proc.startTimestamp };
-    scheduler->addProcess(proc);
 
     if (!scheduler->isRunning()) {
         auto& coreToProcess = scheduler->getCoreToProcess();
@@ -757,10 +872,17 @@ void handleScreenS(const std::string& name, Scheduler* scheduler, std::map<std::
 
                             proc.executedCommands++;
                             
+
                             if (proc.executedCommands >= proc.totalCommands) {
                                 proc.finished = true;
                                 proc.finishTimestamp = getCurrentTimestamp();
                                 coreToProcess[assignedCore] = "";
+                                // Free memory on finish
+                                if (proc.memoryAddress != -1) {
+                                    scheduler->getProcessMutex().unlock();
+                                    scheduler->freeProcessMemory(proc.name);
+                                    scheduler->getProcessMutex().lock();
+                                }
                                 soloProcessCount--;
                                 processActive = false; 
                             }
@@ -822,6 +944,7 @@ void handleSchedulerStop(std::unique_ptr<Scheduler>& scheduler) {
     }
 
     scheduler->shutdown();
+    scheduler->printMemory();
 
     std::cout << "Scheduler stopped successfully.\n";
 }
@@ -835,7 +958,7 @@ void handleHelp() {
         << "       exit        - Exit the screen session.\n"
         << "  screen -ls       - Show current CPU/process usage.\n"
         << "  scheduler-start  - Start dummy process generation.\n"
-        << "  scheduler-stop   - Stop process generation (not yet implemented).\n"
+        << "  scheduler-stop   - Stop process generation and free memory.\n"
         << "  report-util      - Save CPU utilization report to file.\n"
         << "  clear            - Clear the screen.\n"
         << "  exit             - Exit the emulator.\n";
@@ -1049,8 +1172,16 @@ int main() {
         else if (inputCommand.find("report-util") != std::string::npos) {
             if (procScheduler) {
                 procScheduler->generateLog("csopesy-log.txt");
+                procScheduler->printMemory();
             }
             else {
+                std::cout << "Scheduler not initialized.\n";
+            }
+        }
+        else if (inputCommand == "mem-status") {
+            if (procScheduler) {
+                procScheduler->printMemory();
+            } else {
                 std::cout << "Scheduler not initialized.\n";
             }
         }
