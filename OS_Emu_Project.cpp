@@ -73,7 +73,6 @@ public:
             if (block.allocated && !block.owner.empty()) {
                 oss << block.owner << "\n";
             }
-            // For free blocks, just print the boundary (no label)
         }
         oss << "----start----- = 0\n";
         return oss.str();
@@ -1043,7 +1042,6 @@ void handleSchedulerStop(std::unique_ptr<Scheduler>& scheduler) {
     }
 
     scheduler->shutdown();
-    scheduler->printMemory();
 
     std::cout << "Scheduler stopped successfully.\n";
 }
