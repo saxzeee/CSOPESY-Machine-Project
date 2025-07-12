@@ -1,3 +1,4 @@
+#include <filesystem>
 #include <iostream>
 #include <string>
 #include <map>
@@ -39,6 +40,39 @@ struct MemoryBlock {
 
 // Memory manager for first-fit allocation
 class MemoryManager {
+public:
+    // Returns the number of processes currently in memory
+    int countProcessesInMemory() const {
+        int count = 0;
+        for (const auto& block : blocks) {
+            if (block.allocated && !block.owner.empty()) count++;
+        }
+        return count;
+    }
+
+    // Returns total external fragmentation in KB (sum of all free blocks)
+    size_t getExternalFragmentation() const {
+        size_t total = 0;
+        for (const auto& block : blocks) {
+            if (!block.allocated) total += block.size;
+        }
+        return total;
+    }
+
+    // ASCII printout of memory (returns as string)
+    std::string asciiMemoryMap() const {
+        std::ostringstream oss;
+        oss << "----end----- = " << (blocks.empty() ? 0 : blocks.back().start + blocks.back().size) << "\n";
+        for (auto it = blocks.rbegin(); it != blocks.rend(); ++it) {
+            const auto& block = *it;
+            oss << block.start + block.size << "\n";
+            if (block.allocated && !block.owner.empty()) {
+                oss << block.owner << "\n";
+            }
+        }
+        oss << "----start---- = 0\n";
+        return oss.str();
+    }
 public:
     MemoryManager(size_t totalSize) {
         blocks.push_back({0, totalSize, false, ""});
@@ -133,6 +167,19 @@ void executeInstruction(Process& proc, const Instruction& instr, std::ostream& o
 std::vector<Instruction> generateRandomInstructions(const std::string& procName, int count, int nestLevel);
 
 class Scheduler {
+    // Helper: produce memory report file
+    void writeMemoryReport() {
+        static int reportCounter = 0;
+        std::ostringstream fname;
+        fname << "mem_report_" << std::setw(4) << std::setfill('0') << reportCounter++ << ".txt";
+        std::ofstream out(fname.str());
+        if (!out.is_open()) return;
+        out << "Timestamp: (" << getCurrentTimestamp() << ")\n";
+        out << "Number of processes in memory: " << memoryManager->countProcessesInMemory() << "\n";
+        out << "Total external fragmentation in KB: " << memoryManager->getExternalFragmentation() << "\n";
+        out << memoryManager->asciiMemoryMap();
+        out.close();
+    }
 public:
     // Public method to free memory for a process by name
     void freeProcessMemory(const std::string& name) {
@@ -148,7 +195,6 @@ private:
     std::map<std::string, ScreenSession>* screenSessions = nullptr;
     std::unique_ptr<MemoryManager> memoryManager;
     size_t memPerProc;
-    std::deque<Process> pendingQueue; // for processes waiting for memory
     std::deque<Process> pendingQueue; // for processes waiting for memory
 
     void cpuWorker(int coreID) {
@@ -392,6 +438,7 @@ public:
     }
 
     void runScheduler() {
+        int quantumCounter = 0;
         // Start CPU threads first
         std::vector<std::thread> cpuThreads;
         for (int i = 1; i <= static_cast<int>(numCores); i++) {
@@ -406,6 +453,15 @@ public:
                 return;
             }
         }
+
+        // Periodic memory report thread
+        std::atomic<bool> reportThreadRunning(true);
+        std::thread reportThread([this, &reportThreadRunning, &quantumCounter]() {
+            while (reportThreadRunning) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(quantumCycles));
+                writeMemoryReport();
+            }
+        });
         // Process generator
         std::thread processCreator([this]() {
             std::random_device rd;
@@ -467,6 +523,8 @@ public:
         while (schedulerRunning && soloProcessCount > 0) {
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
+        reportThreadRunning = false;
+        if (reportThread.joinable()) reportThread.join();
         if (processCreator.joinable()) processCreator.join();
         if (pendingAllocator.joinable()) pendingAllocator.join();
         if (schedThread.joinable()) schedThread.join();
