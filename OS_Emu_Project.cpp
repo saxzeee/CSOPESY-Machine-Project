@@ -62,15 +62,20 @@ public:
     // ASCII printout of memory (returns as string)
     std::string asciiMemoryMap() const {
         std::ostringstream oss;
-        oss << "----end----- = " << (blocks.empty() ? 0 : blocks.back().start + blocks.back().size) << "\n";
+        size_t mem_end = blocks.empty() ? 0 : blocks.back().start + blocks.back().size;
+        oss << "----end----- = " << mem_end << "\n";
+        // Print from high address to low address
         for (auto it = blocks.rbegin(); it != blocks.rend(); ++it) {
             const auto& block = *it;
-            oss << block.start + block.size << "\n";
+            size_t upper = block.start + block.size;
+            size_t lower = block.start;
+            oss << upper << "\n";
             if (block.allocated && !block.owner.empty()) {
                 oss << block.owner << "\n";
             }
+            // For free blocks, just print the boundary (no label)
         }
-        oss << "----start---- = 0\n";
+        oss << "----start----- = 0\n";
         return oss.str();
     }
 public:
@@ -81,17 +86,17 @@ public:
     // First-fit allocation
     // Returns start address if successful, or -1 if failed
     int allocate(size_t size, const std::string& owner) {
-        for (auto& block : blocks) {
-            if (!block.allocated && block.size >= size) {
-                if (block.size > size) {
+        for (size_t i = 0; i < blocks.size(); ++i) {
+            if (!blocks[i].allocated && blocks[i].size >= size) {
+                if (blocks[i].size > size) {
                     // Split block
-                    MemoryBlock newBlock = {block.start + size, block.size - size, false, ""};
-                    block.size = size;
-                    blocks.insert(blocks.begin() + (&block - &blocks[0]) + 1, newBlock);
+                    MemoryBlock newBlock = {blocks[i].start + size, blocks[i].size - size, false, ""};
+                    blocks[i].size = size;
+                    blocks.insert(blocks.begin() + i + 1, newBlock);
                 }
-                block.allocated = true;
-                block.owner = owner;
-                return static_cast<int>(block.start);
+                blocks[i].allocated = true;
+                blocks[i].owner = owner;
+                return static_cast<int>(blocks[i].start);
             }
         }
         return -1;
@@ -168,10 +173,9 @@ std::vector<Instruction> generateRandomInstructions(const std::string& procName,
 
 class Scheduler {
     // Helper: produce memory report file
-    void writeMemoryReport() {
-        static int reportCounter = 0;
+    void writeMemoryReport(int quantumCycle) {
         std::ostringstream fname;
-        fname << "mem_report_" << std::setw(4) << std::setfill('0') << reportCounter++ << ".txt";
+        fname << "memory_stamp_" << quantumCycle << ".txt";
         std::ofstream out(fname.str());
         if (!out.is_open()) return;
         out << "Timestamp: (" << getCurrentTimestamp() << ")\n";
@@ -195,6 +199,8 @@ private:
     std::map<std::string, ScreenSession>* screenSessions = nullptr;
     std::unique_ptr<MemoryManager> memoryManager;
     size_t memPerProc;
+    size_t memPerFrame;
+    size_t maxOverallMem;
     std::deque<Process> pendingQueue; // for processes waiting for memory
 
     void cpuWorker(int coreID) {
@@ -404,14 +410,19 @@ public:
         coreToProcess.resize(config.numCores, "");
         memoryManager = std::make_unique<MemoryManager>(config.maxOverallMem);
         memPerProc = config.memPerProc;
+        memPerFrame = config.memPerFrame;
+        maxOverallMem = config.maxOverallMem;
     }
 
     // Add process with memory allocation
-    bool addProcess(Process& process) {
+    // If suppressError is true, do not print error message
+    bool addProcess(Process& process, bool suppressError = false) {
         process.memoryRequired = memPerProc;
         int addr = memoryManager->allocate(process.memoryRequired, process.name);
         if (addr == -1) {
-            std::cout << "Failed to allocate memory for process '" << process.name << "' (" << process.memoryRequired << " units).\n";
+            if (!suppressError) {
+                std::cout << "Failed to allocate memory for process '" << process.name << "' (" << process.memoryRequired << " units).\n";
+            }
             return false;
         }
         process.memoryAddress = addr;
@@ -459,7 +470,8 @@ public:
         std::thread reportThread([this, &reportThreadRunning, &quantumCounter]() {
             while (reportThreadRunning) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(quantumCycles));
-                writeMemoryReport();
+                ++quantumCounter;
+                writeMemoryReport(quantumCounter);
             }
         });
         // Process generator
@@ -499,7 +511,7 @@ public:
                         for (size_t i = 0; i < n; ++i) {
                             Process proc = pendingQueue.front();
                             pendingQueue.pop_front();
-                            bool added = addProcess(proc);
+                            bool added = addProcess(proc, true); // suppress error message on retry
                             if (added) {
                                 if (screenSessions) {
                                     (*screenSessions)[proc.name] = {
@@ -609,6 +621,9 @@ public:
         std::cout << "Min Instructions      : " << minIns << "\n";
         std::cout << "Max Instructions      : " << maxIns << "\n";
         std::cout << "Delay per Execution   : " << delayPerExec << "\n";
+        std::cout << "Max Overall Memory    : " << maxOverallMem << "\n";
+        std::cout << "Memory Per Frame      : " << memPerFrame << "\n";
+        std::cout << "Memory Per Process    : " << memPerProc << "\n";
         std::cout << "----------------------------------\n";
     }
 
