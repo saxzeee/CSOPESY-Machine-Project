@@ -203,6 +203,9 @@ private:
     size_t maxOverallMem;
     std::deque<Process> pendingQueue; // for processes waiting for memory
 
+    std::atomic<int> quantumFinishCounter{0};
+    std::atomic<int> quantumCycleNumber{0};
+
     void cpuWorker(int coreID) {
         while (true) {
             processMutex.lock();
@@ -284,7 +287,6 @@ private:
 
     void cpuWorkerRoundRobin(int coreID) {
         size_t currentIndex = coreID - 1;
-
         while (schedulerRunning) {
             size_t procIndex = -1;
 
@@ -365,6 +367,15 @@ private:
                 }
 
                 std::this_thread::sleep_for(std::chrono::milliseconds(delayPerExec));
+            }
+
+            // At the end of this core's quantum, increment the finish counter
+            int finished = ++quantumFinishCounter;
+            if (finished == (int)numCores) {
+                // All cores finished their quantum, write memory report
+                ++quantumCycleNumber;
+                writeMemoryReport(quantumCycleNumber);
+                quantumFinishCounter = 0; // reset for next round
             }
 
             currentIndex = (currentIndex + 1) % processList.size();
@@ -471,15 +482,15 @@ public:
             }
         }
 
-        // Periodic memory report thread
-        std::atomic<bool> reportThreadRunning(true);
-        std::thread reportThread([this, &reportThreadRunning, &quantumCounter]() {
-            while (reportThreadRunning) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(quantumCycles));
-                ++quantumCounter;
-                writeMemoryReport(quantumCounter);
-            }
-        });
+        // // Periodic memory report thread
+        // std::atomic<bool> reportThreadRunning(true);
+        // std::thread reportThread([this, &reportThreadRunning, &quantumCounter]() {
+        //     while (reportThreadRunning) {
+        //         std::this_thread::sleep_for(std::chrono::milliseconds(quantumCycles));
+        //         ++quantumCounter;
+        //         writeMemoryReport(quantumCounter);
+        //     }
+        // });
         // Process generator
         std::thread processCreator([this]() {
             std::random_device rd;
@@ -541,8 +552,8 @@ public:
         while (schedulerRunning && soloProcessCount > 0) {
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
-        reportThreadRunning = false;
-        if (reportThread.joinable()) reportThread.join();
+        // reportThreadRunning = false;
+        // if (reportThread.joinable()) reportThread.join();
         if (processCreator.joinable()) processCreator.join();
         if (pendingAllocator.joinable()) pendingAllocator.join();
         if (schedThread.joinable()) schedThread.join();
