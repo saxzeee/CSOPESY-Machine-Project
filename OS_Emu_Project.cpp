@@ -421,10 +421,11 @@ public:
                 proc.coreAssigned = -1;
                 proc.instructions = generateRandomInstructions(proc.name, proc.totalCommands, 0);
 
+                bool added = false;
                 {
                     std::lock_guard<std::mutex> lock(processMutex);
-                    processList.push_back(proc);
-                    if (screenSessions) {
+                    added = addProcess(proc);
+                    if (added && screenSessions) {
                         (*screenSessions)[proc.name] = {
                             proc.name, 1, proc.totalCommands, proc.startTimestamp
                         };
@@ -433,7 +434,7 @@ public:
 
                 std::this_thread::sleep_for(std::chrono::milliseconds(batchProcFreq));
             }
-            });
+        });
 
         // Check for processes if done
         std::thread schedThread(&Scheduler::scheduler, this);
