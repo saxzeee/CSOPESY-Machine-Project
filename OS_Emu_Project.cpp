@@ -482,15 +482,6 @@ public:
             }
         }
 
-        // // Periodic memory report thread
-        // std::atomic<bool> reportThreadRunning(true);
-        // std::thread reportThread([this, &reportThreadRunning, &quantumCounter]() {
-        //     while (reportThreadRunning) {
-        //         std::this_thread::sleep_for(std::chrono::milliseconds(quantumCycles));
-        //         ++quantumCounter;
-        //         writeMemoryReport(quantumCounter);
-        //     }
-        // });
         // Process generator
         std::thread processCreator([this]() {
             std::random_device rd;
@@ -552,8 +543,6 @@ public:
         while (schedulerRunning && soloProcessCount > 0) {
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
-        // reportThreadRunning = false;
-        // if (reportThread.joinable()) reportThread.join();
         if (processCreator.joinable()) processCreator.join();
         if (pendingAllocator.joinable()) pendingAllocator.join();
         if (schedThread.joinable()) schedThread.join();
