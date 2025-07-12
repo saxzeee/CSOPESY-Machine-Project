@@ -13,6 +13,7 @@
 #include <memory>
 #include <random>
 #include <atomic>
+#include <deque>
 
 static std::atomic<int> soloProcessCount(0); 
 
@@ -147,6 +148,8 @@ private:
     std::map<std::string, ScreenSession>* screenSessions = nullptr;
     std::unique_ptr<MemoryManager> memoryManager;
     size_t memPerProc;
+    std::deque<Process> pendingQueue; // for processes waiting for memory
+    std::deque<Process> pendingQueue; // for processes waiting for memory
 
     void cpuWorker(int coreID) {
         while (true) {
@@ -421,18 +424,39 @@ public:
                 proc.coreAssigned = -1;
                 proc.instructions = generateRandomInstructions(proc.name, proc.totalCommands, 0);
 
-                bool added = false;
                 {
                     std::lock_guard<std::mutex> lock(processMutex);
-                    added = addProcess(proc);
-                    if (added && screenSessions) {
-                        (*screenSessions)[proc.name] = {
-                            proc.name, 1, proc.totalCommands, proc.startTimestamp
-                        };
-                    }
+                    pendingQueue.push_back(proc);
                 }
 
                 std::this_thread::sleep_for(std::chrono::milliseconds(batchProcFreq));
+            }
+        });
+
+        // Pending queue memory allocation loop
+        std::thread pendingAllocator([this]() {
+            while (schedulerRunning) {
+                {
+                    std::lock_guard<std::mutex> lock(processMutex);
+                    if (!pendingQueue.empty()) {
+                        size_t n = pendingQueue.size();
+                        for (size_t i = 0; i < n; ++i) {
+                            Process proc = pendingQueue.front();
+                            pendingQueue.pop_front();
+                            bool added = addProcess(proc);
+                            if (added) {
+                                if (screenSessions) {
+                                    (*screenSessions)[proc.name] = {
+                                        proc.name, 1, proc.totalCommands, proc.startTimestamp
+                                    };
+                                }
+                            } else {
+                                pendingQueue.push_back(proc); // move to back
+                            }
+                        }
+                    }
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
             }
         });
 
@@ -444,6 +468,7 @@ public:
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
         if (processCreator.joinable()) processCreator.join();
+        if (pendingAllocator.joinable()) pendingAllocator.join();
         if (schedThread.joinable()) schedThread.join();
         for (auto& t : cpuThreads) t.join();
     }
