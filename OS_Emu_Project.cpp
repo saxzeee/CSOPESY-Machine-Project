@@ -57,16 +57,6 @@ struct schedConfig {
 void executeInstruction(Process& proc, const Instruction& instr, std::ostream& out = std::cout, int nestLevel = 0);
 std::vector<Instruction> generateRandomInstructions(const std::string& procName, int count, int nestLevel);
 
-// get current timestamp
-std::string getCurrentTimestamp() {
-    time_t now = time(0);
-    tm ltm;
-    localtime_s(&ltm, &now);
-    std::ostringstream oss;
-    oss << std::put_time(&ltm, "%m/%d/%Y, %I:%M:%S %p");
-    return oss.str();
-}
-
 class Scheduler {
 private:
     std::vector<Process> processList;
@@ -255,6 +245,15 @@ private:
         }
     }
 
+    std::string getCurrentTimestamp() {
+        time_t now = time(0);
+        tm ltm;
+        localtime_s(&ltm, &now);
+        std::ostringstream oss;
+        oss << std::put_time(&ltm, "%m/%d/%Y, %I:%M:%S %p");
+        return oss.str();
+    }
+
 public:
     unsigned int numCores;
     std::string algorithm;
@@ -320,6 +319,7 @@ public:
             int processCounter = 1;
 
             while (schedulerRunning) {
+                if (!schedulerRunning) break;
                 Process proc;
                 proc.name = "process" + std::to_string(processCounter++);
                 proc.totalCommands = dist(gen);
@@ -347,8 +347,11 @@ public:
         std::thread schedThread(&Scheduler::scheduler, this);
 
         // Wait for processes to end
-        processCreator.join();
-        schedThread.join();
+        while (schedulerRunning && soloProcessCount > 0) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        if (processCreator.joinable()) processCreator.join();
+        if (schedThread.joinable()) schedThread.join();
         for (auto& t : cpuThreads) t.join();
     }
 
@@ -512,6 +515,16 @@ _/              _/  _/    _/  _/        _/              _/      _/
     std::cout << "Welcome to CSOPESY OS Emulator!\n";
     std::cout << "Type 'exit' to quit, 'clear' to clear the screen.\n";
     defaultColor();
+}
+
+// get current timestamp
+std::string getCurrentTimestamp() {
+    time_t now = time(0);
+    tm ltm;
+    localtime_s(&ltm, &now);
+    std::ostringstream oss;
+    oss << std::put_time(&ltm, "%m/%d/%Y, %I:%M:%S %p");
+    return oss.str();
 }
 
 // Display screen layout
