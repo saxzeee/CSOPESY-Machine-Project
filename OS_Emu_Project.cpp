@@ -271,9 +271,12 @@ private:
                     proc.finishTimestamp = getCurrentTimestamp();
                     finishedProcesses.push_back(procIndex);
                     proc.coreAssigned = -1;
-                    coreToProcess[coreID - 1] = ""; 
-                }
-                else {
+                    coreToProcess[coreID - 1] = "";
+                    // Free memory immediately when process finishes
+                    if (proc.memoryAddress != -1) {
+                        memoryManager->free(proc.name);
+                    }
+                } else {
                     proc.coreAssigned = -1; 
                 }
             }
@@ -354,9 +357,12 @@ private:
                     finishedProcesses.push_back(procIndex);
                     proc.coreAssigned = -1;
                     coreToProcess[coreID - 1] = "";
+                    // Free memory immediately when process finishes
+                    if (proc.memoryAddress != -1) {
+                        memoryManager->free(proc.name);
+                    }
                     break;
-                }
-                else {
+                } else {
                     proc.coreAssigned = -1;
                 }
 
