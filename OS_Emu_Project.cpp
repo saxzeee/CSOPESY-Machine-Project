@@ -76,8 +76,6 @@ public:
             }
         }
         oss << "----start----- = 0\n";
-        // Print external fragmentation in bytes
-        oss << "External fragmentation: " << getExternalFragmentation() << " bytes\n";
         return oss.str();
     }
 public:
