@@ -64,17 +64,20 @@ public:
         std::ostringstream oss;
         size_t mem_end = blocks.empty() ? 0 : blocks.back().start + blocks.back().size;
         oss << "----end----- = " << mem_end << "\n";
-        // Print from high address to low address
+        // Print only allocated blocks, from high to low address
         for (auto it = blocks.rbegin(); it != blocks.rend(); ++it) {
             const auto& block = *it;
-            size_t upper = block.start + block.size;
-            size_t lower = block.start;
-            oss << upper << "\n";
             if (block.allocated && !block.owner.empty()) {
+                size_t upper = block.start + block.size;
+                size_t lower = block.start;
+                oss << upper << "\n";
                 oss << block.owner << "\n";
+                oss << lower << "\n";
             }
         }
         oss << "----start----- = 0\n";
+        // Print external fragmentation in bytes
+        oss << "External fragmentation: " << getExternalFragmentation() << " bytes\n";
         return oss.str();
     }
 public:
