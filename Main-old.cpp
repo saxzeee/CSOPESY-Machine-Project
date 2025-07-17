@@ -1054,18 +1054,22 @@ void handleSchedulerStop(std::unique_ptr<Scheduler>& scheduler) {
 }
 
 void handleHelp() {
-    std::cout << "Commands:\n"
-        << "  initialize       - Initialize the processor configuration with \"config.txt\".\n"
-        << "  screen -s <name> - Attach or create a screen session for a process.\n"
-        << "  screen -r <name> - Resume an existing screen session if still running.\n"
-        << "       process-smi - Show process info inside screen.\n"
-        << "       exit        - Exit the screen session.\n"
-        << "  screen -ls       - Show current CPU/process usage.\n"
-        << "  scheduler-start  - Start dummy process generation.\n"
-        << "  scheduler-stop   - Stop process generation and free memory.\n"
-        << "  report-util      - Save CPU utilization report to file.\n"
-        << "  clear            - Clear the screen.\n"
-        << "  exit             - Exit the emulator.\n";
+    std::cout 
+        << "+---------------------------------------------------------------------------------+\n"
+        << "|                           CSOPESY OS Emulator Commands                          |\n"
+        << "+---------------------------------------------------------------------------------+\n"
+        << "|  initialize       - Initialize the processor configuration with \"config.txt\".   |\n"
+        << "|  screen -s <name> - Attach or create a screen session for a process.            |\n"
+        << "|  screen -r <name> - Resume an existing screen session if still running.         |\n"
+        << "|       process-smi - Show process info inside screen.                            |\n"
+        << "|       exit        - Exit the screen session.                                    |\n"
+        << "|  screen -ls       - Show current CPU/process usage.                             |\n"
+        << "|  scheduler-start  - Start dummy process generation.                             |\n"
+        << "|  scheduler-stop   - Stop process generation and free memory.                    |\n"
+        << "|  report-util      - Save CPU utilization report to file.                        |\n"
+        << "|  clear            - Clear the screen.                                           |\n"
+        << "|  exit             - Exit the emulator.                                          |\n"
+        << "+---------------------------------------------------------------------------------+\n";
 }
 
 void executeInstruction(Process& proc, const Instruction& instr, std::ostream& out, int nestLevel) {
@@ -1231,7 +1235,7 @@ int main() {
         if (inputCommand.find("initialize") != std::string::npos) {
             handleInitialize(config, procScheduler, screens, initialized);
         }
-        else if (inputCommand == "-help") {
+        else if (inputCommand == "help") {
             handleHelp();
         }
         else if (inputCommand == "clear") {
@@ -1290,7 +1294,7 @@ int main() {
             }
         }
         else {
-            std::cout << "Command not recognized. Type '-help' to display commands.\n";
+            std::cout << "Command not recognized. Type 'help' to display commands.\n";
         }
         inputCommand = "";
     }

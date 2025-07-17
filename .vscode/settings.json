@@ -79,6 +79,7 @@
         "text_encoding": "cpp",
         "variant": "cpp",
         "cstdarg": "cpp",
-        "codecvt": "cpp"
+        "codecvt": "cpp",
+        "filesystem": "cpp"
     }
 }
