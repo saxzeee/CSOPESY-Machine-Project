@@ -16,6 +16,7 @@
 class Scheduler {
 public:
     Scheduler(const schedConfig& config);
+    void writeMemoryReport(int quantumCycle);
     bool addProcess(Process& process, bool suppressError = false);
     const std::vector<Process>& getProcessList() const;
     const std::vector<int>& getFinishedProcesses() const;
@@ -51,7 +52,7 @@ private:
     size_t memPerProc;
     size_t memPerFrame;
     size_t maxOverallMem;
-    std::deque<Process> pendingQueue; // for processes waiting for memory
+    std::deque<Process> pendingQueue;
 
     std::atomic<int> quantumFinishCounter{0};
     std::atomic<int> quantumCycleNumber{0};
@@ -59,5 +60,4 @@ private:
     void cpuWorker(int coreID);
     void cpuWorkerRoundRobin(int coreID);
     void scheduler();
-    void writeMemoryReport(int quantumCycle);
 };

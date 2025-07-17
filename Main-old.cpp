@@ -1234,15 +1234,12 @@ int main() {
 
         if (inputCommand.find("initialize") != std::string::npos) {
             handleInitialize(config, procScheduler, screens, initialized);
-        }
-        else if (inputCommand == "help") {
+        } else if (inputCommand == "help") {
             handleHelp();
-        }
-        else if (inputCommand == "clear") {
+        } else if (inputCommand == "clear") {
             clearScreen();
             dispHeader();
-        }
-        else if (inputCommand == "exit") {
+        } else if (inputCommand == "exit") {
             if (procScheduler && procScheduler->isRunning()) {
                 std::cout << "Stopping scheduler before exit...\n";
                 procScheduler->shutdown();
@@ -1258,45 +1255,36 @@ int main() {
             procScheduler.reset();
             
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        }
-        else if (!initialized) {
+        } else if (!initialized) {
             std::cout << "Run the initialize command first before proceeding.\n";
-        }
-        else if (inputCommand.rfind("screen -s ", 0) == 0) {
+        } else if (inputCommand.rfind("screen -s ", 0) == 0) {
             handleScreenS(inputCommand.substr(10), procScheduler.get(), screens);
-        }
-        else if (inputCommand.rfind("screen -r ", 0) == 0) {
+        } else if (inputCommand.rfind("screen -r ", 0) == 0) {
             handleScreenR(inputCommand.substr(10), screens, procScheduler.get());
-        }
-        else if (inputCommand.find("screen -ls") != std::string::npos) {
+        } else if (inputCommand.find("screen -ls") != std::string::npos) {
             procScheduler->showScreenLS();
-        }
-        else if (inputCommand.find("scheduler-start") != std::string::npos) {
+        } else if (inputCommand.find("scheduler-start") != std::string::npos) {
             procScheduler->startScheduler();
-        }
-        else if (inputCommand.find("scheduler-stop") != std::string::npos) {
+        } else if (inputCommand.find("scheduler-stop") != std::string::npos) {
             handleSchedulerStop(procScheduler);
-        }
-        else if (inputCommand.find("report-util") != std::string::npos) {
+        } else if (inputCommand.find("report-util") != std::string::npos) {
             if (procScheduler) {
                 procScheduler->generateLog("csopesy-log.txt");
                 procScheduler->printMemory();
-            }
-            else {
+            } else {
                 std::cout << "Scheduler not initialized.\n";
             }
-        }
-        else if (inputCommand == "mem-status") {
+        } else if (inputCommand == "mem-status") {
             if (procScheduler) {
                 procScheduler->printMemory();
             } else {
                 std::cout << "Scheduler not initialized.\n";
             }
-        }
-        else {
+        } else {
             std::cout << "Command not recognized. Type 'help' to display commands.\n";
         }
         inputCommand = "";
     }
+    
     return 0;
 }

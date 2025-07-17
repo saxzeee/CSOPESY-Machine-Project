@@ -10,7 +10,7 @@
 #include <thread>
 #include <chrono>
 
-static std::atomic<int> soloProcessCount(0);
+std::atomic<int> soloProcessCount(0);
 
 int main() {
     bool menuState = true;

@@ -24,6 +24,18 @@ Scheduler::Scheduler(const schedConfig& config) {
     maxOverallMem = config.maxOverallMem;
 }
 
+void Scheduler::writeMemoryReport(int quantumCycle) {
+    std::ostringstream fname;
+    fname << "memory_stamp_" << quantumCycle << ".txt";
+    std::ofstream out(fname.str());
+    if (!out.is_open()) return;
+    out << "Timestamp: (" << getCurrentTimestamp() << ")\n";
+    out << "Number of processes in memory: " << memoryManager->countProcessesInMemory() << "\n";
+    out << "Total external fragmentation in KB: " << memoryManager->getExternalFragmentation() << "\n";
+    out << memoryManager->asciiMemoryMap();
+    out.close();
+}
+
 bool Scheduler::addProcess(Process& process, bool suppressError) {
     process.memoryRequired = memPerProc;
     int addr = memoryManager->allocate(process.memoryRequired, process.name);
@@ -90,8 +102,7 @@ void Scheduler::runScheduler() {
             proc.startTimestamp = getCurrentTimestamp();
             proc.finished = false;
             proc.coreAssigned = -1;
-            // You must implement generateRandomInstructions elsewhere
-            // proc.instructions = generateRandomInstructions(proc.name, proc.totalCommands, 0);
+            proc.instructions = generateRandomInstructions(proc.name, proc.totalCommands, 0);
 
             {
                 std::lock_guard<std::mutex> lock(processMutex);
@@ -281,25 +292,193 @@ std::vector<std::string>& Scheduler::getCoreToProcess() {
 
 // Private methods (implement as needed)
 void Scheduler::cpuWorker(int coreID) {
-    // Implementation omitted for brevity; see OS_Emu_Project.cpp for logic.
+    while (true) {
+        processMutex.lock();
+        int procIndex = -1;
+        for (size_t i = 0; i < processList.size(); i++) {
+            if (!processList[i].finished && processList[i].executedCommands < processList[i].totalCommands && processList[i].coreAssigned == -1) {
+                procIndex = static_cast<int>(i);
+                processList[i].coreAssigned = coreID - 1;
+                coreToProcess[coreID - 1] = processList[i].name;
+                break;
+            }
+        }
+        processMutex.unlock();
+
+        if (procIndex == -1) {
+            if (!schedulerRunning) break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(delayPerExec));
+            continue;
+        }
+
+        std::string procName;
+        {
+            std::lock_guard<std::mutex> lock(processMutex);
+            Process& proc = processList[procIndex];
+
+            if (proc.sleepRemaining > 0) {
+                proc.sleepRemaining--;
+                proc.coreAssigned = -1;
+                continue;
+            }
+
+            std::ostringstream ss;
+            ss << "(" << getCurrentTimestamp() << ") Core:" << (coreID - 1) << " ";
+            std::string logLine;
+            if (proc.executedCommands < proc.instructions.size()) {
+                Instruction& instr = proc.instructions[proc.executedCommands];
+                executeInstruction(proc, instr, ss);
+                logLine = ss.str();
+            }
+
+            if (screenSessions) {
+                auto it = screenSessions->find(proc.name);
+                if (it != screenSessions->end()) {
+                    it->second.processLogs.push_back(logLine);
+                    it->second.currentLine = proc.executedCommands;
+                }
+            }
+            proc.executedCommands++;
+            procName = proc.name;
+
+            if (screenSessions) {
+                auto it = screenSessions->find(proc.name);
+                if (it != screenSessions->end()) {
+                    it->second.currentLine = proc.executedCommands;
+                }
+            }
+
+            if (proc.executedCommands >= proc.totalCommands) {
+                proc.finished = true;
+                auto it = screenSessions->find(proc.name);
+                if (it != screenSessions->end()) {
+                    it->second.currentLine = proc.executedCommands;
+                }
+                proc.finishTimestamp = getCurrentTimestamp();
+                finishedProcesses.push_back(procIndex);
+                proc.coreAssigned = -1;
+                coreToProcess[coreID - 1] = "";
+                // Free memory immediately when process finishes
+                if (proc.memoryAddress != -1) {
+                    memoryManager->free(proc.name);
+                }
+            } else {
+                proc.coreAssigned = -1;
+            }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(delayPerExec));
+    }
 }
 
 void Scheduler::cpuWorkerRoundRobin(int coreID) {
-    // Implementation omitted for brevity; see OS_Emu_Project.cpp for logic.
+    size_t currentIndex = coreID - 1;
+    while (schedulerRunning) {
+        size_t procIndex = -1;
+
+        {
+            std::lock_guard<std::mutex> lock(processMutex);
+            size_t procCount = processList.size();
+            if (procCount == 0) continue;
+
+            size_t startIndex = currentIndex;
+            do {
+                if (currentIndex >= procCount) currentIndex = 0;
+
+                if (!processList[currentIndex].finished &&
+                    processList[currentIndex].executedCommands < processList[currentIndex].totalCommands &&
+                    processList[currentIndex].coreAssigned == -1) {
+                    procIndex = currentIndex;
+                    processList[currentIndex].coreAssigned = coreID - 1;
+                    coreToProcess[coreID - 1] = processList[currentIndex].name;
+                    break;
+                }
+
+                currentIndex = (currentIndex + 1) % procCount;
+            } while (currentIndex != startIndex);
+        }
+
+        if (procIndex == static_cast<size_t>(-1)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(delayPerExec));
+            continue;
+        }
+
+        for (int i = 0; i < static_cast<int>(quantumCycles); ++i) {
+            std::lock_guard<std::mutex> lock(processMutex);
+            if (procIndex >= processList.size()) break;
+
+            Process& proc = processList[procIndex];
+
+            if (proc.sleepRemaining > 0) {
+                proc.sleepRemaining--;
+                proc.coreAssigned = -1;
+                break;
+            }
+
+            if (proc.finished || proc.executedCommands >= proc.totalCommands)
+                break;
+
+            std::ostringstream ss;
+            ss << "(" << getCurrentTimestamp() << ") Core:" << (coreID - 1) << " ";
+            std::string logLine;
+            if (proc.executedCommands < proc.instructions.size()) {
+                Instruction& instr = proc.instructions[proc.executedCommands];
+                executeInstruction(proc, instr, ss);
+                logLine = ss.str();
+            }
+
+            if (screenSessions) {
+                auto it = screenSessions->find(proc.name);
+                if (it != screenSessions->end()) {
+                    it->second.processLogs.push_back(logLine);
+                    it->second.currentLine = proc.executedCommands;
+                }
+            }
+
+            proc.executedCommands++;
+
+            if (proc.executedCommands >= proc.totalCommands) {
+                proc.finished = true;
+                proc.finishTimestamp = getCurrentTimestamp();
+                finishedProcesses.push_back(procIndex);
+                proc.coreAssigned = -1;
+                coreToProcess[coreID - 1] = "";
+                // Free memory immediately when process finishes
+                if (proc.memoryAddress != -1) {
+                    memoryManager->free(proc.name);
+                }
+                break;
+            } else {
+                proc.coreAssigned = -1;
+            }
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(delayPerExec));
+        }
+
+        // At the end of this core's quantum, increment the finish counter
+        int finished = ++quantumFinishCounter;
+        if (finished == static_cast<int>(numCores)) {
+            // All cores finished their quantum, write memory report
+            ++quantumCycleNumber;
+            writeMemoryReport(quantumCycleNumber);
+            quantumFinishCounter = 0; // reset for next round
+        }
+
+        currentIndex = (currentIndex + 1) % processList.size();
+    }
 }
 
 void Scheduler::scheduler() {
-    // Implementation omitted for brevity; see OS_Emu_Project.cpp for logic.
-}
-
-void Scheduler::writeMemoryReport(int quantumCycle) {
-    std::ostringstream fname;
-    fname << "memory_stamp_" << quantumCycle << ".txt";
-    std::ofstream out(fname.str());
-    if (!out.is_open()) return;
-    out << "Timestamp: (" << getCurrentTimestamp() << ")\n";
-    out << "Number of processes in memory: " << memoryManager->countProcessesInMemory() << "\n";
-    out << "Total external fragmentation in KB: " << memoryManager->getExternalFragmentation() << "\n";
-    out << memoryManager->asciiMemoryMap();
-    out.close();
+    while (true) {
+        processMutex.lock();
+        bool allDone = true;
+        for (size_t i = 0; i < processList.size(); i++) {
+            if (!processList[i].finished) {
+                allDone = false;
+                break;
+            }
+        }
+        processMutex.unlock();
+        if (allDone) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(delayPerExec));
+    }
 }

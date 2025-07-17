@@ -10,6 +10,7 @@ struct schedConfig {
     uint32_t minIns;
     uint32_t maxIns;
     uint32_t delayPerExec;
+    // New parameters for MCO2
     size_t maxOverallMem = 1024;
     size_t memPerFrame = 0;
     size_t memPerProc = 64;
