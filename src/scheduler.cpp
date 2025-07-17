@@ -17,11 +17,13 @@ Scheduler::Scheduler(const schedConfig& config) {
     minIns = config.minIns;
     maxIns = config.maxIns;
     delayPerExec = config.delayPerExec;
+    maxOverallMem = config.maxOverallMem;
+    memPerFrame = config.memPerFrame;
+    minMemPerProc = config.minMemPerProc;
+    maxMemPerProc = config.maxMemPerProc;
+    
     coreToProcess.resize(config.numCores, "");
     memoryManager = std::make_unique<MemoryManager>(config.maxOverallMem);
-    memPerProc = config.memPerProc;
-    memPerFrame = config.memPerFrame;
-    maxOverallMem = config.maxOverallMem;
 }
 
 void Scheduler::writeMemoryReport(int quantumCycle) {
@@ -37,7 +39,7 @@ void Scheduler::writeMemoryReport(int quantumCycle) {
 }
 
 bool Scheduler::addProcess(Process& process, bool suppressError) {
-    process.memoryRequired = memPerProc;
+    process.memoryRequired = maxMemPerProc;
     int addr = memoryManager->allocate(process.memoryRequired, process.name);
     if (addr == -1) {
         if (!suppressError) {
@@ -220,8 +222,9 @@ void Scheduler::printConfig() const {
     std::cout << "Max Instructions      : " << maxIns << "\n";
     std::cout << "Delay per Execution   : " << delayPerExec << "\n";
     std::cout << "Max Overall Memory    : " << maxOverallMem << "\n";
-    std::cout << "Memory Per Frame      : " << memPerFrame << "\n";
-    std::cout << "Memory Per Process    : " << memPerProc << "\n";
+    std::cout << "Memory per Frame      : " << memPerFrame << "\n";
+    std::cout << "Min Memory per Proc   : " << minMemPerProc << "\n";
+    std::cout << "Max Memory per Proc   : " << maxMemPerProc << "\n";
     std::cout << "----------------------------------\n";
 }
 
@@ -290,7 +293,6 @@ std::vector<std::string>& Scheduler::getCoreToProcess() {
     return coreToProcess;
 }
 
-// Private methods (implement as needed)
 void Scheduler::cpuWorker(int coreID) {
     while (true) {
         processMutex.lock();
@@ -358,7 +360,6 @@ void Scheduler::cpuWorker(int coreID) {
                 finishedProcesses.push_back(procIndex);
                 proc.coreAssigned = -1;
                 coreToProcess[coreID - 1] = "";
-                // Free memory immediately when process finishes
                 if (proc.memoryAddress != -1) {
                     memoryManager->free(proc.name);
                 }
@@ -442,7 +443,6 @@ void Scheduler::cpuWorkerRoundRobin(int coreID) {
                 finishedProcesses.push_back(procIndex);
                 proc.coreAssigned = -1;
                 coreToProcess[coreID - 1] = "";
-                // Free memory immediately when process finishes
                 if (proc.memoryAddress != -1) {
                     memoryManager->free(proc.name);
                 }
@@ -454,13 +454,11 @@ void Scheduler::cpuWorkerRoundRobin(int coreID) {
             std::this_thread::sleep_for(std::chrono::milliseconds(delayPerExec));
         }
 
-        // At the end of this core's quantum, increment the finish counter
         int finished = ++quantumFinishCounter;
         if (finished == static_cast<int>(numCores)) {
-            // All cores finished their quantum, write memory report
             ++quantumCycleNumber;
             writeMemoryReport(quantumCycleNumber);
-            quantumFinishCounter = 0; // reset for next round
+            quantumFinishCounter = 0;
         }
 
         currentIndex = (currentIndex + 1) % processList.size();

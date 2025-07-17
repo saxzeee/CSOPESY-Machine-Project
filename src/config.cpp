@@ -40,8 +40,10 @@ bool readConfigFile(std::string filePath, schedConfig* config) {
                 config->maxOverallMem = std::stoull(configVals);
             } else if (attribute == "mem-per-frame") {
                 config->memPerFrame = std::stoull(configVals);
-            } else if (attribute == "mem-per-proc") {
-                config->memPerProc = std::stoull(configVals);
+            } else if (attribute == "min-mem-per-proc") {
+                config->minMemPerProc = std::stoull(configVals);
+            } else if (attribute == "max-mem-per-proc") {
+                config->maxMemPerProc = std::stoull(configVals);
             }
         }
     }

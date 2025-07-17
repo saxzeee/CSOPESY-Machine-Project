@@ -40,6 +40,10 @@ public:
     uint32_t minIns;
     uint32_t maxIns;
     uint32_t delayPerExec;
+    uint32_t maxOverallMem;
+    uint32_t memPerFrame;
+    uint32_t minMemPerProc;
+    uint32_t maxMemPerProc;
 private:
     std::vector<Process> processList;
     std::vector<int> finishedProcesses;
@@ -49,9 +53,6 @@ private:
     std::thread schedulerMain;
     std::map<std::string, ScreenSession>* screenSessions = nullptr;
     std::unique_ptr<MemoryManager> memoryManager;
-    size_t memPerProc;
-    size_t memPerFrame;
-    size_t maxOverallMem;
     std::deque<Process> pendingQueue;
 
     std::atomic<int> quantumFinishCounter{0};
