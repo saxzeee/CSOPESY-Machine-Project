@@ -733,6 +733,8 @@ public:
     void displayProcesses() const {
         std::lock_guard<std::mutex> lock(processMutex);
         
+        // Display running processes
+        bool hasRunningProcesses = false;
         for (size_t i = 0; i < runningProcesses.size(); ++i) {
             if (runningProcesses[i]) {
                 auto& p = runningProcesses[i];
@@ -740,15 +742,24 @@ public:
                 std::cout << "(Started: " << p->creationTimestamp << ")  ";
                 std::cout << "Core: " << i << "  ";
                 std::cout << p->executedInstructions << " / " << p->totalInstructions << std::endl;
+                hasRunningProcesses = true;
             }
         }
         
+        if (!hasRunningProcesses) {
+            std::cout << "No processes currently running." << std::endl;
+        }
+        
         std::cout << std::endl << "Finished processes:" << std::endl;
-        for (const auto& p : terminatedProcesses) {
-            std::cout << std::left << std::setw(12) << p->name << "  ";
-            std::cout << "(" << p->completionTimestamp << ")  ";
-            std::cout << "Finished  ";
-            std::cout << p->executedInstructions << " / " << p->totalInstructions << std::endl;
+        if (terminatedProcesses.empty()) {
+            std::cout << "No processes have finished yet." << std::endl;
+        } else {
+            for (const auto& p : terminatedProcesses) {
+                std::cout << std::left << std::setw(12) << p->name << "  ";
+                std::cout << "(" << p->completionTimestamp << ")  ";
+                std::cout << "Finished  ";
+                std::cout << p->executedInstructions << " / " << p->totalInstructions << std::endl;
+            }
         }
         std::cout << "---------------------------------------------" << std::endl;
     }
