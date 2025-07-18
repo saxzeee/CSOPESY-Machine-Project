@@ -57,8 +57,13 @@ private:
 
     std::atomic<int> quantumFinishCounter{0};
     std::atomic<int> quantumCycleNumber{0};
+    std::atomic<int> soloProcessCount{0};
 
     void cpuWorker(int coreID);
     void cpuWorkerRoundRobin(int coreID);
     void scheduler();
+public:
+    int getSoloProcessCount() const { return soloProcessCount.load(); }
+    void incrementSoloProcessCount() { soloProcessCount++; }
+    void decrementSoloProcessCount() { soloProcessCount--; }
 };

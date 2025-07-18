@@ -159,8 +159,7 @@ void handleScreenS(const std::string& name, Scheduler* scheduler, std::map<std::
             return;
         }
 
-        extern std::atomic<int> soloProcessCount;
-        soloProcessCount++;
+        scheduler->incrementSoloProcessCount();
 
         std::thread soloWorker([scheduler, &screens, name, assignedCore]() {
             bool processActive = true;
@@ -210,7 +209,7 @@ void handleScreenS(const std::string& name, Scheduler* scheduler, std::map<std::
                                     scheduler->freeProcessMemory(proc.name);
                                     scheduler->getProcessMutex().lock();
                                 }
-                                soloProcessCount--;
+                                scheduler->decrementSoloProcessCount();
                                 processActive = false;
                             }
 
@@ -221,7 +220,7 @@ void handleScreenS(const std::string& name, Scheduler* scheduler, std::map<std::
 
                     if (!processFound) {
                         coreToProcess[assignedCore] = "";
-                        soloProcessCount--;
+                        scheduler->decrementSoloProcessCount();
                         processActive = false;
                     }
                 }

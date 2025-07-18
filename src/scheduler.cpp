@@ -125,7 +125,13 @@ void Scheduler::runScheduler() {
                         Process proc = pendingQueue.front();
                         pendingQueue.pop_front();
                         bool added = addProcess(proc, true);
-                        if (!added) {
+                        if (added) {
+                            if (screenSessions) {
+                                (*screenSessions)[proc.name] = {
+                                    proc.name, 1, proc.totalCommands, proc.startTimestamp
+                                };
+                            }
+                        } else {
                             pendingQueue.push_back(proc);
                         }
                     }
@@ -136,6 +142,10 @@ void Scheduler::runScheduler() {
     });
 
     std::thread schedThread(&Scheduler::scheduler, this);
+
+    while (schedulerRunning && getSoloProcessCount() > 0) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
 
     if (processCreator.joinable()) processCreator.join();
     if (pendingAllocator.joinable()) pendingAllocator.join();

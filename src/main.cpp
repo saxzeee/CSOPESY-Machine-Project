@@ -10,8 +10,6 @@
 #include <thread>
 #include <chrono>
 
-std::atomic<int> soloProcessCount(0);
-
 int main() {
     bool menuState = true;
     bool initialized = false;
@@ -40,7 +38,7 @@ int main() {
                 procScheduler->shutdown();
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
-            while (soloProcessCount > 0) {
+            while (procScheduler && procScheduler->getSoloProcessCount() > 0) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(50));
             }
             menuState = false;
