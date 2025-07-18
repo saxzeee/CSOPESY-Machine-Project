@@ -1,69 +1,70 @@
-#pragma once
+#ifndef SCHEDULER_NEW_H
+#define SCHEDULER_NEW_H
+
+#include "memory_manager.h"
+#include "process.h"
 #include <vector>
 #include <string>
-#include <map>
 #include <mutex>
 #include <thread>
 #include <deque>
 #include <memory>
 #include <atomic>
-#include <atomic>
-#include "Process.h"
-#include "screen_session.h"
-#include "memory_manager.h"
-#include "Config.h"
+#include <map>
 
 class Scheduler {
 public:
-    Scheduler(const schedConfig& config);
-    void writeMemoryReport(int quantumCycle);
-    bool addProcess(Process& process, bool suppressError = false);
-    const std::vector<Process>& getProcessList() const;
-    const std::vector<int>& getFinishedProcesses() const;
+    int numCores;
+    std::string algorithm;
+    size_t quantumCycles;
+    size_t batchProcFreq;
+    size_t minIns;
+    size_t maxIns;
+    size_t delayPerExec;
+    size_t maxOverallMem;
+    size_t memPerFrame;
+    size_t memPerProc;
+
+private:
+    std::vector<Process> processList;
+    std::deque<Process> pendingQueue;
+    std::deque<Process> readyQueue;
+    std::vector<std::string> coreToProcess;
+    std::vector<std::thread> cpuThreads;
+    std::thread schedulerMain;
+    std::mutex processMutex;
+    std::atomic<bool> schedulerRunning{false};
+    std::unique_ptr<MemoryManager> memoryManager;
+    std::map<std::string, ScreenSession>* screenSessions = nullptr;
+
+public:
+    explicit Scheduler(const schedConfig& config);
+    ~Scheduler();
+
+    bool addProcess(const Process& proc, bool suppressError = false);
+    void freeProcessMemory(const std::string& processName);
+    const std::vector<Process>& getProcessList() const { return processList; }
+    
     void startScheduler();
-    bool isRunning() const;
+    void scheduler();
     void runScheduler();
-    void generateLog(const std::string& filename);
     void shutdown();
+    
+    void generateLog(const std::string& filename);
     void printMemory() const;
     void printConfig() const;
     void showScreenLS();
     void setScreenMap(std::map<std::string, ScreenSession>* screens);
-    void freeProcessMemory(const std::string& name);
-    std::mutex& getProcessMutex();
-    std::vector<std::string>& getCoreToProcess();
+    
+    bool isRunning() const { return schedulerRunning; }
+    std::mutex& getProcessMutex() { return processMutex; }
+    std::vector<std::string>& getCoreToProcess() { return coreToProcess; }
 
-    unsigned int numCores;
-    std::string algorithm;
-    uint32_t quantumCycles;
-    uint32_t batchProcFreq;
-    uint32_t minIns;
-    uint32_t maxIns;
-    uint32_t delayPerExec;
-    uint32_t maxOverallMem;
-    uint32_t memPerFrame;
-    uint32_t minMemPerProc;
-    uint32_t maxMemPerProc;
 private:
-    std::vector<Process> processList;
-    std::vector<int> finishedProcesses;
-    std::vector<std::string> coreToProcess;
-    std::mutex processMutex;
-    bool schedulerRunning = false;
-    std::thread schedulerMain;
-    std::map<std::string, ScreenSession>* screenSessions = nullptr;
-    std::unique_ptr<MemoryManager> memoryManager;
-    std::deque<Process> pendingQueue;
-
-    std::atomic<int> quantumFinishCounter{0};
-    std::atomic<int> quantumCycleNumber{0};
-    std::atomic<int> soloProcessCount{0};
-
-    void cpuWorker(int coreID);
-    void cpuWorkerRoundRobin(int coreID);
-    void scheduler();
-public:
-    int getSoloProcessCount() const { return soloProcessCount.load(); }
-    void incrementSoloProcessCount() { soloProcessCount++; }
-    void decrementSoloProcessCount() { soloProcessCount--; }
+    void processGeneratorLoop();
+    void cpuWorker(int coreId);
+    void processSchedulingAlgorithm();
+    int findProcessIndex(const std::string& name) const;
 };
+
+#endif // SCHEDULER_NEW_H

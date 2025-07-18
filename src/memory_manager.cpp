@@ -1,4 +1,4 @@
-#include "memory_manager.h"
+#include "../headers/memory_manager.h"
 #include <iostream>
 #include <sstream>
 
@@ -41,16 +41,16 @@ std::string MemoryManager::asciiMemoryMap() const {
 }
 
 int MemoryManager::allocate(size_t size, const std::string& owner) {
-    for (auto it = blocks.begin(); it != blocks.end(); ++it) {
-        if (!it->allocated && it->size >= size) {
-            size_t start = it->start;
-            if (it->size > size) {
-                blocks.insert(it + 1, {start + size, it->size - size, false, ""});
+    for (size_t i = 0; i < blocks.size(); ++i) {
+        if (!blocks[i].allocated && blocks[i].size >= size) {
+            if (blocks[i].size > size) {
+                MemoryBlock newBlock = {blocks[i].start + size, blocks[i].size - size, false, ""};
+                blocks[i].size = size;
+                blocks.insert(blocks.begin() + i + 1, newBlock);
             }
-            it->size = size;
-            it->allocated = true;
-            it->owner = owner;
-            return static_cast<int>(start);
+            blocks[i].allocated = true;
+            blocks[i].owner = owner;
+            return static_cast<int>(blocks[i].start);
         }
     }
     return -1;
@@ -67,15 +67,13 @@ void MemoryManager::free(const std::string& owner) {
 }
 
 void MemoryManager::mergeFreeBlocks() {
-    for (auto it = blocks.begin(); it != blocks.end();) {
-        if (!it->allocated) {
-            auto next = it + 1;
-            while (next != blocks.end() && !next->allocated) {
-                it->size += next->size;
-                next = blocks.erase(next);
-            }
+    for (size_t i = 0; i + 1 < blocks.size(); ) {
+        if (!blocks[i].allocated && !blocks[i+1].allocated) {
+            blocks[i].size += blocks[i+1].size;
+            blocks.erase(blocks.begin() + i + 1);
+        } else {
+            ++i;
         }
-        ++it;
     }
 }
 

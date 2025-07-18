@@ -1,7 +1,13 @@
 #pragma once
 #include <vector>
 #include <string>
-#include "memory_block.h"
+
+struct MemoryBlock {
+    size_t start;
+    size_t size;
+    bool allocated;
+    std::string owner;
+};
 
 class MemoryManager {
 public:
@@ -13,6 +19,7 @@ public:
     void free(const std::string& owner);
     void printMemory() const;
     void mergeFreeBlocks();
+
 private:
     std::vector<MemoryBlock> blocks;
 };
