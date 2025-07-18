@@ -25,9 +25,6 @@ struct SystemConfig {
     int minInstructions = 1000;
     int maxInstructions = 2000;
     int delayPerExec = 100;
-    int maxOverallMem = 1024;
-    int memPerFrame = 16;
-    int memPerProcess = 64;
     
     bool loadFromFile(const std::string& filename) {
         std::ifstream file(filename);
@@ -38,15 +35,35 @@ struct SystemConfig {
         
         std::string line;
         while (std::getline(file, line)) {
-            line.erase(std::remove_if(line.begin(), line.end(), ::isspace), line.end());
+            // Remove leading/trailing whitespace but keep internal spaces
+            size_t start = line.find_first_not_of(" \t\r\n");
+            if (start == std::string::npos) continue; // empty line
+            size_t end = line.find_last_not_of(" \t\r\n");
+            line = line.substr(start, end - start + 1);
             
             if (line.empty() || line[0] == '#') continue;
             
-            size_t pos = line.find('=');
-            if (pos == std::string::npos) continue;
+            // Look for space or = as separator
+            size_t pos = line.find(' ');
+            if (pos == std::string::npos) {
+                pos = line.find('=');
+                if (pos == std::string::npos) continue;
+            }
             
             std::string key = line.substr(0, pos);
             std::string value = line.substr(pos + 1);
+            
+            // Remove leading/trailing whitespace from value
+            start = value.find_first_not_of(" \t");
+            if (start != std::string::npos) {
+                end = value.find_last_not_of(" \t");
+                value = value.substr(start, end - start + 1);
+            }
+            
+            // Remove quotes from value if present
+            if (value.length() >= 2 && value.front() == '"' && value.back() == '"') {
+                value = value.substr(1, value.length() - 2);
+            }
             
             try {
                 if (key == "num-cpu") numCpu = std::stoi(value);
@@ -56,9 +73,6 @@ struct SystemConfig {
                 else if (key == "min-ins") minInstructions = std::stoi(value);
                 else if (key == "max-ins") maxInstructions = std::stoi(value);
                 else if (key == "delay-per-exec") delayPerExec = std::stoi(value);
-                else if (key == "max-overall-mem") maxOverallMem = std::stoi(value);
-                else if (key == "mem-per-frame") memPerFrame = std::stoi(value);
-                else if (key == "mem-per-proc") memPerProcess = std::stoi(value);
             } catch (const std::exception& e) {
                 std::cerr << "Error parsing config line: " << line << std::endl;
             }
@@ -76,9 +90,6 @@ struct SystemConfig {
         std::cout << "Min Instructions      : " << minInstructions << std::endl;
         std::cout << "Max Instructions      : " << maxInstructions << std::endl;
         std::cout << "Delay per Execution   : " << delayPerExec << std::endl;
-        std::cout << "Max Overall Memory    : " << maxOverallMem << std::endl;
-        std::cout << "Memory Per Frame      : " << memPerFrame << std::endl;
-        std::cout << "Memory Per Process    : " << memPerProcess << std::endl;
         std::cout << "----------------------------------" << std::endl;
     }
 };
@@ -150,8 +161,6 @@ public:
     int executedInstructions;
     int totalInstructions;
     int coreAssignment;
-    int memoryAddress;
-    int memorySize;
     std::string creationTimestamp;
     std::string completionTimestamp;
     std::vector<std::string> instructionHistory;
@@ -163,7 +172,7 @@ public:
     
     Process(const std::string& processName) 
         : name(processName), state(ProcessState::NEW), priority(0), 
-          coreAssignment(-1), memoryAddress(-1), memorySize(0),
+          coreAssignment(-1),
           executedInstructions(0), totalInstructions(0) {
         
         static std::atomic<int> pidCounter{1};
@@ -530,122 +539,11 @@ public:
     }
 };
 
-class MemoryManager {
-private:
-    int totalMemory;
-    int frameSize;
-    std::vector<bool> memoryMap;
-    std::map<std::string, std::pair<int, int>> allocatedProcesses; 
-    mutable std::mutex memoryMutex;
-    
-public:
-    enum class AllocationStrategy {
-        FIRST_FIT,
-        BEST_FIT,
-        WORST_FIT
-    };
-    
-    AllocationStrategy strategy = AllocationStrategy::FIRST_FIT;
-    
-    MemoryManager(int totalMem, int frameSize) 
-        : totalMemory(totalMem), frameSize(frameSize) {
-        int numFrames = totalMemory / frameSize;
-        memoryMap.resize(numFrames, false); 
-    }
-    
-    bool allocate(const std::string& pid, int size) {
-        std::lock_guard<std::mutex> lock(memoryMutex);
-        
-        int framesNeeded = (size + frameSize - 1) / frameSize;
-        int totalFrames = memoryMap.size();
-        
-        int startFrame = -1;
-        
-        int consecutiveFree = 0;
-        for (int i = 0; i < totalFrames; ++i) {
-            if (!memoryMap[i]) {
-                if (consecutiveFree == 0) startFrame = i;
-                consecutiveFree++;
-                if (consecutiveFree >= framesNeeded) break;
-            } else {
-                consecutiveFree = 0;
-                startFrame = -1;
-            }
-        }
-        
-        if (startFrame == -1) {
-            return false; 
-        }
-        
-        for (int i = startFrame; i < startFrame + framesNeeded; ++i) {
-            memoryMap[i] = true;
-        }
-        
-        allocatedProcesses[pid] = {startFrame * frameSize, framesNeeded * frameSize};
-        return true;
-    }
-    
-    bool deallocate(const std::string& pid) {
-        std::lock_guard<std::mutex> lock(memoryMutex);
-        
-        auto it = allocatedProcesses.find(pid);
-        if (it == allocatedProcesses.end()) {
-            return false; 
-        }
-        
-        int startAddress = it->second.first;
-        int size = it->second.second;
-        int startFrame = startAddress / frameSize;
-        int framesCount = (size + frameSize - 1) / frameSize;
-        
-        for (int i = startFrame; i < startFrame + framesCount; ++i) {
-            memoryMap[i] = false;
-        }
-        
-        allocatedProcesses.erase(it);
-        return true;
-    }
-    
-    void displayMemoryMap() const {
-        std::lock_guard<std::mutex> lock(memoryMutex);
-        
-        std::cout << "\n=== Memory Map ===" << std::endl;
-        std::cout << "Total Memory: " << totalMemory << " KB" << std::endl;
-        std::cout << "Frame Size: " << frameSize << " KB" << std::endl;
-        std::cout << "Available: " << getAvailableMemory() << " KB" << std::endl;
-        
-        std::cout << "\nAllocated Processes:" << std::endl;
-        for (const auto& [pid, allocation] : allocatedProcesses) {
-            std::cout << "  " << pid << ": Address " << allocation.first 
-                      << ", Size " << allocation.second << " KB" << std::endl;
-        }
-        
-        std::cout << "\nMemory Layout: ";
-        const int maxDisplay = 50;
-        int step = std::max(1, static_cast<int>(memoryMap.size()) / maxDisplay);
-        
-        for (size_t i = 0; i < memoryMap.size(); i += step) {
-            std::cout << (memoryMap[i] ? "█" : "░");
-        }
-        std::cout << std::endl;
-        std::cout << "░ = Free, █ = Allocated" << std::endl;
-    }
-    
-    int getAvailableMemory() const {
-        int freeFrames = 0;
-        for (bool allocated : memoryMap) {
-            if (!allocated) freeFrames++;
-        }
-        return freeFrames * frameSize;
-    }
-};
-
 class Scheduler;
 
 class Scheduler {
 private:
     std::unique_ptr<SystemConfig> config;
-    std::unique_ptr<MemoryManager> memoryManager;
     
     std::vector<std::shared_ptr<Process>> allProcesses;
     std::queue<std::shared_ptr<Process>> readyQueue;
@@ -726,8 +624,6 @@ private:
         process->updateMetrics();
         process->coreAssignment = -1;
         
-        memoryManager->deallocate(process->pid);
-        
         {
             std::lock_guard<std::mutex> lock(processMutex);
             terminatedProcesses.push_back(process);
@@ -738,9 +634,6 @@ private:
 public:
     Scheduler(std::unique_ptr<SystemConfig> cfg) 
         : config(std::move(cfg)) {
-        
-        memoryManager = std::make_unique<MemoryManager>(
-            config->maxOverallMem, config->memPerFrame);
         
         runningProcesses.resize(config->numCpu, nullptr);
         systemStartTime = std::chrono::high_resolution_clock::now();
@@ -802,13 +695,6 @@ public:
             config->minInstructions, config->maxInstructions);
         process->generateInstructions(instructionCount);
         
-        if (!memoryManager->allocate(process->pid, config->memPerProcess)) {
-            std::cout << "Failed to create process '" << processName 
-                      << "': Insufficient memory." << std::endl;
-            return false;
-        }
-        
-        process->memorySize = config->memPerProcess;
         process->state = ProcessState::READY;
         
         {
@@ -888,7 +774,6 @@ public:
         file << "CPU Cores: " << config->numCpu << std::endl;
         file << "Scheduler Algorithm: " << config->scheduler << std::endl;
         file << "Quantum Cycles: " << config->quantumCycles << std::endl;
-        file << "Memory: " << config->maxOverallMem << " KB" << std::endl;
         
         int busyCores = 0;
         for (const auto& process : runningProcesses) {
@@ -918,10 +803,6 @@ public:
     }
     
     bool isSystemRunning() const { return isRunning.load(); }
-    
-    void displayMemoryStatus() const {
-        memoryManager->displayMemoryMap();
-    }
 };
 
 class CommandProcessor {
