@@ -1,397 +1,360 @@
-#include "../headers/scheduler.h"
-#include <iostream>
-#include <fstream>
-#include <sstream>
-#include <iomanip>
-#include <chrono>
-#include <random>
-#include <algorithm>
+#include "main.cpp"
 
-Scheduler::Scheduler(const schedConfig& config) 
-    : numCores(config.numCores), algorithm(config.algorithm), quantumCycles(config.quantumCycles),
-      batchProcFreq(config.batchProcFreq), minIns(config.minIns), maxIns(config.maxIns),
-      delayPerExec(config.delayPerExec), maxOverallMem(config.maxOverallMem),
-      memPerFrame(config.memPerFrame), memPerProc(config.memPerProc) {
+// Enhanced Scheduler Implementation
+Scheduler::Scheduler(std::unique_ptr<SystemConfig> cfg) 
+    : config(std::move(cfg)) {
     
-    coreToProcess.resize(numCores, "");
-    memoryManager = std::make_unique<MemoryManager>(maxOverallMem);
+    memoryManager = std::make_unique<MemoryManager>(
+        config->maxOverallMem, config->memPerFrame);
+    
+    runningProcesses.resize(config->numCpu, nullptr);
+    systemStartTime = std::chrono::high_resolution_clock::now();
 }
 
 Scheduler::~Scheduler() {
-    shutdown();
+    stop();
 }
 
-bool Scheduler::addProcess(const Process& proc, bool suppressError) {
-    int memAddr = memoryManager->allocate(memPerProc, proc.name);
-    if (memAddr == -1) {
-        if (!suppressError) {
-            std::cout << "Failed to allocate memory for process: " << proc.name << std::endl;
-        }
+bool Scheduler::start() {
+    if (isRunning.load()) {
+        std::cout << "Scheduler is already running." << std::endl;
         return false;
     }
-
-    Process newProc = proc;
-    newProc.memoryAddress = memAddr;
-    newProc.quantumRemaining = quantumCycles;
-
-    std::lock_guard<std::mutex> lock(processMutex);
-    processList.push_back(newProc);
     
-    if (schedulerRunning) {
-        readyQueue.push_back(newProc);
+    shouldStop.store(false);
+    isRunning.store(true);
+    
+    // Start core worker threads
+    coreWorkers.clear();
+    for (int i = 0; i < config->numCpu; ++i) {
+        coreWorkers.emplace_back(&Scheduler::coreWorkerThread, this, i);
     }
     
+    // Start process creator thread
+    coreWorkers.emplace_back(&Scheduler::processCreatorThread, this);
+    
+    std::cout << "Scheduler started with " << config->numCpu << " CPU cores." << std::endl;
     return true;
 }
 
-void Scheduler::freeProcessMemory(const std::string& processName) {
-    memoryManager->free(processName);
-}
-
-void Scheduler::startScheduler() {
-    if (schedulerRunning) {
-        std::cout << "Scheduler is already running.\n";
+void Scheduler::stop() {
+    if (!isRunning.load()) {
         return;
     }
     
-    std::cout << "Scheduler started.\n";
-    schedulerRunning = true;
-    schedulerMain = std::thread(&Scheduler::runScheduler, this);
-}
-
-void Scheduler::scheduler() {
-    while (schedulerRunning) {
-        processSchedulingAlgorithm();
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    }
-}
-
-void Scheduler::processSchedulingAlgorithm() {
-    std::lock_guard<std::mutex> lock(processMutex);
+    shouldStop.store(true);
+    isRunning.store(false);
     
-    if (algorithm == "fcfs") {
-        for (int core = 0; core < numCores; ++core) {
-            if (coreToProcess[core].empty() && !readyQueue.empty()) {
-                Process proc = readyQueue.front();
-                readyQueue.pop_front();
-                
-                int procIndex = findProcessIndex(proc.name);
-                if (procIndex != -1 && !processList[procIndex].finished) {
-                    processList[procIndex].coreAssigned = core;
-                    coreToProcess[core] = proc.name;
-                }
-            }
-        }
-    } else if (algorithm == "rr") {
-        for (int core = 0; core < numCores; ++core) {
-            if (coreToProcess[core].empty() && !readyQueue.empty()) {
-                Process proc = readyQueue.front();
-                readyQueue.pop_front();
-                
-                int procIndex = findProcessIndex(proc.name);
-                if (procIndex != -1 && !processList[procIndex].finished) {
-                    processList[procIndex].coreAssigned = core;
-                    processList[procIndex].quantumRemaining = quantumCycles;
-                    coreToProcess[core] = proc.name;
-                }
-            }
+    // Notify all waiting threads
+    processCV.notify_all();
+    
+    // Wait for all threads to complete
+    for (auto& worker : coreWorkers) {
+        if (worker.joinable()) {
+            worker.join();
         }
     }
+    
+    coreWorkers.clear();
+    std::cout << "Scheduler stopped successfully." << std::endl;
 }
 
-int Scheduler::findProcessIndex(const std::string& name) const {
-    for (size_t i = 0; i < processList.size(); ++i) {
-        if (processList[i].name == name) {
-            return static_cast<int>(i);
-        }
-    }
-    return -1;
-}
-
-void Scheduler::cpuWorker(int coreId) {
-    while (schedulerRunning) {
-        std::string processName;
+void Scheduler::coreWorkerThread(int coreId) {
+    while (!shouldStop.load()) {
+        std::shared_ptr<Process> currentProcess = nullptr;
         
         {
-            std::lock_guard<std::mutex> lock(processMutex);
-            processName = coreToProcess[coreId];
-        }
-        
-        if (!processName.empty()) {
-            std::lock_guard<std::mutex> lock(processMutex);
-            int procIndex = findProcessIndex(processName);
+            std::unique_lock<std::mutex> lock(processMutex);
             
-            if (procIndex != -1 && !processList[procIndex].finished) {
-                Process& proc = processList[procIndex];
+            // Check if there's already a process assigned to this core
+            currentProcess = runningProcesses[coreId];
+            
+            // If no process assigned, try to get one from ready queue
+            if (!currentProcess && !readyQueue.empty()) {
+                currentProcess = readyQueue.front();
+                readyQueue.pop();
                 
-                if (proc.sleepRemaining > 0) {
-                    proc.sleepRemaining--;
-                    std::this_thread::sleep_for(std::chrono::milliseconds(delayPerExec));
-                    continue;
-                }
-                
-                if (proc.executedCommands < proc.instructions.size()) {
-                    std::ostringstream ss;
-                    ss << "(" << getCurrentTimestamp() << ") Core:" << coreId << " ";
-                    
-                    Instruction& instr = proc.instructions[proc.executedCommands];
-                    executeInstruction(proc, instr, ss);
-                    
-                    if (screenSessions) {
-                        auto it = screenSessions->find(proc.name);
-                        if (it != screenSessions->end()) {
-                            it->second.processLogs.push_back(ss.str());
-                            it->second.currentLine = proc.executedCommands;
-                        }
-                    }
-                }
-                
-                proc.executedCommands++;
-                
-                if (algorithm == "rr") {
-                    proc.quantumRemaining--;
-                    if (proc.quantumRemaining <= 0 && proc.executedCommands < proc.totalCommands) {
-                        readyQueue.push_back(proc);
-                        proc.coreAssigned = -1;
-                        coreToProcess[coreId] = "";
-                        continue;
-                    }
-                }
-                
-                if (proc.executedCommands >= proc.totalCommands) {
-                    proc.finished = true;
-                    proc.finishTimestamp = getCurrentTimestamp();
-                    proc.coreAssigned = -1;
-                    coreToProcess[coreId] = "";
-                    
-                    if (proc.memoryAddress != -1) {
-                        memoryManager->free(proc.name);
-                    }
-                }
-            } else {
-                coreToProcess[coreId] = "";
+                runningProcesses[coreId] = currentProcess;
+                currentProcess->state = ProcessState::RUNNING;
+                currentProcess->coreAssignment = coreId;
             }
         }
         
-        std::this_thread::sleep_for(std::chrono::milliseconds(delayPerExec));
+        if (currentProcess) {
+            // Execute one instruction
+            std::string logEntry = currentProcess->executeNextInstruction();
+            
+            if (!logEntry.empty()) {
+                std::cout << "Core " << coreId << ": " << currentProcess->name 
+                          << " - " << logEntry << std::endl;
+            }
+            
+            // Check if process is complete
+            if (currentProcess->isComplete()) {
+                handleProcessCompletion(currentProcess);
+                
+                std::lock_guard<std::mutex> lock(processMutex);
+                runningProcesses[coreId] = nullptr;
+            }
+            // Check for Round Robin preemption
+            else if (config->scheduler == "rr") {
+                static std::map<int, int> coreQuantumCounters;
+                coreQuantumCounters[coreId]++;
+                
+                if (coreQuantumCounters[coreId] >= config->quantumCycles) {
+                    coreQuantumCounters[coreId] = 0;
+                    
+                    std::lock_guard<std::mutex> lock(processMutex);
+                    currentProcess->state = ProcessState::READY;
+                    currentProcess->coreAssignment = -1;
+                    readyQueue.push(currentProcess);
+                    runningProcesses[coreId] = nullptr;
+                    processCV.notify_one();
+                }
+            }
+            
+            // Execution delay
+            std::this_thread::sleep_for(std::chrono::milliseconds(config->delayPerExec));
+        } else {
+            // No process to run, wait briefly
+            std::unique_lock<std::mutex> lock(processMutex);
+            processCV.wait_for(lock, std::chrono::milliseconds(50));
+        }
     }
 }
 
-void Scheduler::runScheduler() {
-    cpuThreads.clear();
-    for (int i = 0; i < numCores; ++i) {
-        cpuThreads.emplace_back(&Scheduler::cpuWorker, this, i);
+void Scheduler::processCreatorThread() {
+    while (!shouldStop.load()) {
+        // Create a new process
+        if (createProcess()) {
+            std::cout << "New process created automatically." << std::endl;
+        }
+        
+        // Wait for the specified frequency
+        std::this_thread::sleep_for(std::chrono::milliseconds(config->batchProcessFreq * 1000));
     }
+}
 
-    std::thread processCreator([this]() {
-        int processCounter = 1;
-        while (schedulerRunning) {
-            std::random_device rd;
-            std::mt19937 gen(rd());
-            std::uniform_int_distribution<> dist(minIns, maxIns);
-            int randomInstructions = dist(gen);
-
-            Process proc;
-            proc.name = "p" + std::to_string(processCounter++);
-            proc.totalCommands = randomInstructions;
-            proc.executedCommands = 0;
-            proc.finished = false;
-            proc.coreAssigned = -1;
-            proc.startTimestamp = getCurrentTimestamp();
-            proc.instructions = generateRandomInstructions(proc.name, proc.totalCommands, 0);
-
-            {
-                std::lock_guard<std::mutex> lock(processMutex);
-                pendingQueue.push_back(proc);
-            }
-
-            std::this_thread::sleep_for(std::chrono::milliseconds(batchProcFreq));
-        }
-    });
-
-    std::thread pendingAllocator([this]() {
-        while (schedulerRunning) {
-            {
-                std::lock_guard<std::mutex> lock(processMutex);
-                if (!pendingQueue.empty()) {
-                    size_t n = pendingQueue.size();
-                    for (size_t i = 0; i < n; ++i) {
-                        Process proc = pendingQueue.front();
-                        pendingQueue.pop_front();
-                        bool added = addProcess(proc, true);
-                        if (added) {
-                            if (screenSessions) {
-                                (*screenSessions)[proc.name] = {
-                                    proc.name, 1, proc.totalCommands, proc.startTimestamp
-                                };
-                            }
-                        } else {
-                            pendingQueue.push_back(proc);
-                        }
-                    }
-                }
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
-        }
-    });
-
-    std::thread schedThread(&Scheduler::scheduler, this);
-
-    // Detach threads so they run in background and don't block main thread
-    processCreator.detach();
-    pendingAllocator.detach();
-    schedThread.detach();
-    for (auto& t : cpuThreads) {
-        t.detach();
+bool Scheduler::createProcess(const std::string& name) {
+    // Generate process name if not provided
+    std::string processName = name;
+    if (processName.empty()) {
+        processName = "process" + std::to_string(processCounter.fetch_add(1));
     }
     
-    // Clear the vector since we detached the threads
-    cpuThreads.clear();
+    // Create new process
+    auto process = std::make_shared<Process>(processName);
+    
+    // Generate random number of instructions
+    int instructionCount = Utils::generateRandomInt(
+        config->minInstructions, config->maxInstructions);
+    process->generateInstructions(instructionCount);
+    
+    // Try to allocate memory
+    if (!memoryManager->allocate(process->pid, config->memPerProcess)) {
+        std::cout << "Failed to create process '" << processName 
+                  << "': Insufficient memory." << std::endl;
+        return false;
+    }
+    
+    process->memorySize = config->memPerProcess;
+    process->state = ProcessState::READY;
+    
+    {
+        std::lock_guard<std::mutex> lock(processMutex);
+        allProcesses.push_back(process);
+        readyQueue.push(process);
+    }
+    
+    processCV.notify_one();
+    
+    std::cout << "Process '" << processName << "' created with " 
+              << instructionCount << " instructions." << std::endl;
+    return true;
 }
 
-void Scheduler::generateLog(const std::string& filename) {
-    std::ofstream reportFile(filename);
-    if (!reportFile.is_open()) {
-        std::cerr << "Failed to open " << filename << " for writing.\n";
+void Scheduler::handleProcessCompletion(std::shared_ptr<Process> process) {
+    process->state = ProcessState::TERMINATED;
+    process->updateMetrics();
+    process->coreAssignment = -1;
+    
+    // Free memory
+    memoryManager->deallocate(process->pid);
+    
+    {
+        std::lock_guard<std::mutex> lock(processMutex);
+        terminatedProcesses.push_back(process);
+    }
+    
+    std::cout << "Process '" << process->name << "' completed. "
+              << "Turnaround time: " << process->turnaroundTime << "ms, "
+              << "Waiting time: " << process->waitingTime << "ms" << std::endl;
+}
+
+void Scheduler::displayProcesses() const {
+    std::lock_guard<std::mutex> lock(processMutex);
+    
+    std::cout << "\n=== Process Status ===" << std::endl;
+    std::cout << std::left << std::setw(12) << "PID" 
+              << std::setw(15) << "Name" 
+              << std::setw(10) << "State"
+              << std::setw(8) << "Core"
+              << std::setw(12) << "Progress"
+              << std::setw(15) << "Memory (KB)" << std::endl;
+    std::cout << std::string(72, '-') << std::endl;
+    
+    // Display running processes
+    for (size_t i = 0; i < runningProcesses.size(); ++i) {
+        if (runningProcesses[i]) {
+            auto& p = runningProcesses[i];
+            std::cout << std::setw(12) << p->pid
+                      << std::setw(15) << p->name
+                      << std::setw(10) << p->getStateString()
+                      << std::setw(8) << i
+                      << std::setw(12) << (p->executedInstructions + "/" + std::to_string(p->totalInstructions))
+                      << std::setw(15) << p->memorySize << std::endl;
+        }
+    }
+    
+    // Display ready processes
+    auto readyQueueCopy = readyQueue;
+    while (!readyQueueCopy.empty()) {
+        auto& p = readyQueueCopy.front();
+        readyQueueCopy.pop();
+        std::cout << std::setw(12) << p->pid
+                  << std::setw(15) << p->name
+                  << std::setw(10) << p->getStateString()
+                  << std::setw(8) << "-"
+                  << std::setw(12) << (p->executedInstructions + "/" + std::to_string(p->totalInstructions))
+                  << std::setw(15) << p->memorySize << std::endl;
+    }
+    
+    // Display some terminated processes (last 5)
+    int displayCount = std::min(5, static_cast<int>(terminatedProcesses.size()));
+    for (int i = terminatedProcesses.size() - displayCount; i < terminatedProcesses.size(); ++i) {
+        auto& p = terminatedProcesses[i];
+        std::cout << std::setw(12) << p->pid
+                  << std::setw(15) << p->name
+                  << std::setw(10) << p->getStateString()
+                  << std::setw(8) << "-"
+                  << std::setw(12) << "FINISHED"
+                  << std::setw(15) << "0" << std::endl;
+    }
+    
+    std::cout << std::string(72, '-') << std::endl;
+}
+
+void Scheduler::displaySystemStatus() const {
+    std::lock_guard<std::mutex> lock(processMutex);
+    
+    // Calculate CPU utilization
+    int busyCores = 0;
+    for (const auto& process : runningProcesses) {
+        if (process != nullptr) busyCores++;
+    }
+    
+    double cpuUtilization = (static_cast<double>(busyCores) / config->numCpu) * 100.0;
+    
+    std::cout << "\n=== System Status ===" << std::endl;
+    std::cout << "CPU Cores: " << config->numCpu << std::endl;
+    std::cout << "Cores Used: " << busyCores << std::endl;
+    std::cout << "Cores Available: " << (config->numCpu - busyCores) << std::endl;
+    std::cout << "CPU Utilization: " << std::fixed << std::setprecision(1) 
+              << cpuUtilization << "%" << std::endl;
+    
+    std::cout << "\nProcess Counts:" << std::endl;
+    std::cout << "  Total: " << allProcesses.size() << std::endl;
+    std::cout << "  Running: " << busyCores << std::endl;
+    std::cout << "  Ready: " << readyQueue.size() << std::endl;
+    std::cout << "  Terminated: " << terminatedProcesses.size() << std::endl;
+    
+    // Calculate system metrics
+    if (!terminatedProcesses.empty()) {
+        double avgTurnaround = 0, avgWaiting = 0;
+        for (const auto& p : terminatedProcesses) {
+            avgTurnaround += p->turnaroundTime;
+            avgWaiting += p->waitingTime;
+        }
+        avgTurnaround /= terminatedProcesses.size();
+        avgWaiting /= terminatedProcesses.size();
+        
+        std::cout << "\nPerformance Metrics:" << std::endl;
+        std::cout << "  Avg Turnaround Time: " << std::fixed << std::setprecision(2) 
+                  << avgTurnaround << "ms" << std::endl;
+        std::cout << "  Avg Waiting Time: " << std::fixed << std::setprecision(2) 
+                  << avgWaiting << "ms" << std::endl;
+    }
+    
+    auto uptime = std::chrono::high_resolution_clock::now() - systemStartTime;
+    std::cout << "System Uptime: " << Utils::formatDuration(
+        std::chrono::duration_cast<std::chrono::milliseconds>(uptime)) << std::endl;
+    
+    std::cout << "=====================" << std::endl;
+}
+
+void Scheduler::generateReport(const std::string& filename) const {
+    std::ofstream file(filename);
+    if (!file.is_open()) {
+        std::cerr << "Error: Cannot create report file: " << filename << std::endl;
         return;
     }
-
-    reportFile << std::left;
-    int nameWidth = 12;
-
-    int totalCores = static_cast<int>(coreToProcess.size());
-    int coresUsed = 0;
-    for (const auto& procName : coreToProcess) {
-        if (!procName.empty()) {
-            coresUsed++;
-        }
-    }
-    int coresAvailable = totalCores - coresUsed;
-    double cpuUtil = (static_cast<double>(coresUsed) / totalCores) * 100.0;
     
-    reportFile << "---------------------------------------------\n";
-    reportFile << "CPU Status:\n";
-    reportFile << "Total Cores      : " << totalCores << "\n";
-    reportFile << "Cores Used       : " << coresUsed << "\n";
-    reportFile << "Cores Available  : " << coresAvailable << "\n";
-    reportFile << "CPU Utilization  : " << static_cast<int>(cpuUtil) << "%\n\n";
-    reportFile << "---------------------------------------------\n";
-    reportFile << "Running processes:\n";
-    
-    for (int core = 0; core < coreToProcess.size(); ++core) {
-        const std::string& pname = coreToProcess[core];
-        if (pname.empty()) continue;
-
-        for (const auto& proc : processList) {
-            if (proc.name == pname) {
-                reportFile << std::setw(nameWidth) << proc.name << "  ";
-                reportFile << "(Started: " << proc.startTimestamp << ")  ";
-                reportFile << "Core: " << core << "  ";
-                reportFile << proc.executedCommands << " / " << proc.totalCommands << "\n";
-                break;
-            }
-        }
-    }
-    
-    reportFile << "\nFinished processes:\n";
-    for (size_t i = 0; i < processList.size(); i++) {
-        if (processList[i].finished) {
-            reportFile << std::setw(nameWidth) << processList[i].name << "  ";
-            reportFile << "(" << processList[i].finishTimestamp << ")  ";
-            reportFile << "Finished  ";
-            reportFile << processList[i].executedCommands << " / " << processList[i].totalCommands << "\n";
-        }
-    }
-    reportFile << "---------------------------------------------\n";
-}
-
-void Scheduler::shutdown() {
-    schedulerRunning = false;
-    
-    // Give detached threads time to see the flag and exit gracefully
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    
-    if (schedulerMain.joinable()) {
-        schedulerMain.join();
-    }
-    
-    for (const auto& proc : processList) {
-        if (proc.finished && proc.memoryAddress != -1) {
-            memoryManager->free(proc.name);
-        }
-    }
-}
-
-void Scheduler::printMemory() const {
-    memoryManager->printMemory();
-}
-
-void Scheduler::printConfig() const {
-    std::cout << "---- Scheduler Configuration ----\n";
-    std::cout << "Number of CPU Cores   : " << numCores << "\n";
-    std::cout << "Scheduling Algorithm  : " << algorithm << "\n";
-    std::cout << "Quantum Cycles        : " << quantumCycles << "\n";
-    std::cout << "Batch Process Freq    : " << batchProcFreq << "\n";
-    std::cout << "Min Instructions      : " << minIns << "\n";
-    std::cout << "Max Instructions      : " << maxIns << "\n";
-    std::cout << "Delay per Execution   : " << delayPerExec << "\n";
-    std::cout << "Max Overall Memory    : " << maxOverallMem << "\n";
-    std::cout << "Memory Per Frame      : " << memPerFrame << "\n";
-    std::cout << "Memory Per Process    : " << memPerProc << "\n";
-    std::cout << "----------------------------------\n";
-}
-
-void Scheduler::showScreenLS() {
     std::lock_guard<std::mutex> lock(processMutex);
-    std::cout << std::left; 
-    int nameWidth = 12;
-
-    int totalCores = static_cast<int>(coreToProcess.size());
-    int coresUsed = 0;
-    for (const auto& procName : coreToProcess) {
-        if (!procName.empty()) {
-            coresUsed++;
-        }
-    }
-    int coresAvailable = totalCores - coresUsed;
-    double cpuUtil = (static_cast<double>(coresUsed) / totalCores) * 100.0;
     
-    std::cout << "---------------------------------------------\n";
-    std::cout << "CPU Status:\n";
-    std::cout << "Total Cores      : " << totalCores << "\n";
-    std::cout << "Cores Used       : " << coresUsed << "\n";
-    std::cout << "Cores Available  : " << coresAvailable << "\n";
-    std::cout << "CPU Utilization  : " << static_cast<int>(cpuUtil) << "%\n\n";
-    std::cout << "---------------------------------------------\n";
-    std::cout << "Running processes:\n";
+    file << "CSOPESY Process Scheduler Report" << std::endl;
+    file << "Generated: " << Utils::getCurrentTimestamp() << std::endl;
+    file << std::string(50, '=') << std::endl;
     
-    for (int core = 0; core < coreToProcess.size(); ++core) {
-        const std::string& pname = coreToProcess[core];
-        if (pname.empty()) continue;
-
-        for (const auto& proc : processList) {
-            if (proc.name == pname) {
-                std::cout << std::setw(nameWidth) << proc.name << "  ";
-                std::cout << "(Started: " << proc.startTimestamp << ")  ";
-                std::cout << "Core: " << core << "  ";
-                std::cout << proc.executedCommands << " / " << proc.totalCommands << "\n";
-                break;
-            }
-        }
+    // System configuration
+    file << "\nSystem Configuration:" << std::endl;
+    file << "CPU Cores: " << config->numCpu << std::endl;
+    file << "Scheduler Algorithm: " << config->scheduler << std::endl;
+    file << "Quantum Cycles: " << config->quantumCycles << std::endl;
+    file << "Memory: " << config->maxOverallMem << " KB" << std::endl;
+    
+    // Current status (similar to displaySystemStatus but to file)
+    int busyCores = 0;
+    for (const auto& process : runningProcesses) {
+        if (process != nullptr) busyCores++;
     }
     
-    std::cout << "\nFinished processes:\n";
-    for (size_t i = 0; i < processList.size(); i++) {
-        if (processList[i].finished) {
-            std::cout << std::setw(nameWidth) << processList[i].name << "  ";
-            std::cout << "(" << processList[i].finishTimestamp << ")  ";
-            std::cout << "Finished  ";
-            std::cout << processList[i].executedCommands << " / " << processList[i].totalCommands << "\n";
-        }
+    file << "\nCurrent System Status:" << std::endl;
+    file << "CPU Utilization: " << std::fixed << std::setprecision(1) 
+         << (static_cast<double>(busyCores) / config->numCpu) * 100.0 << "%" << std::endl;
+    file << "Active Processes: " << busyCores << std::endl;
+    file << "Ready Queue: " << readyQueue.size() << std::endl;
+    file << "Completed Processes: " << terminatedProcesses.size() << std::endl;
+    
+    // Detailed process information
+    file << "\nProcess Details:" << std::endl;
+    file << std::left << std::setw(12) << "PID" 
+         << std::setw(15) << "Name"
+         << std::setw(10) << "State"
+         << std::setw(12) << "Instructions"
+         << std::setw(12) << "Turnaround"
+         << std::setw(12) << "Waiting" << std::endl;
+    file << std::string(73, '-') << std::endl;
+    
+    for (const auto& process : allProcesses) {
+        file << std::setw(12) << process->pid
+             << std::setw(15) << process->name
+             << std::setw(10) << process->getStateString()
+             << std::setw(12) << (std::to_string(process->executedInstructions) + "/" + std::to_string(process->totalInstructions))
+             << std::setw(12) << process->turnaroundTime
+             << std::setw(12) << process->waitingTime << std::endl;
     }
-    std::cout << "---------------------------------------------\n";
+    
+    file.close();
+    std::cout << "Report generated: " << filename << std::endl;
 }
 
-void Scheduler::setScreenMap(std::map<std::string, ScreenSession>* screens) {
-    screenSessions = screens;
+std::shared_ptr<Process> Scheduler::findProcess(const std::string& name) const {
+    std::lock_guard<std::mutex> lock(processMutex);
+    
+    for (const auto& process : allProcesses) {
+        if (process->name == name || process->pid == name) {
+            return process;
+        }
+    }
+    return nullptr;
 }
