@@ -1,6 +1,5 @@
-#include "main.cpp"
+#include "emulator.h"
 
-// Enhanced Scheduler Implementation
 Scheduler::Scheduler(std::unique_ptr<SystemConfig> cfg) 
     : config(std::move(cfg)) {
     
@@ -24,13 +23,11 @@ bool Scheduler::start() {
     shouldStop.store(false);
     isRunning.store(true);
     
-    // Start core worker threads
     coreWorkers.clear();
     for (int i = 0; i < config->numCpu; ++i) {
         coreWorkers.emplace_back(&Scheduler::coreWorkerThread, this, i);
     }
     
-    // Start process creator thread
     coreWorkers.emplace_back(&Scheduler::processCreatorThread, this);
     
     std::cout << "Scheduler started with " << config->numCpu << " CPU cores." << std::endl;
@@ -45,10 +42,8 @@ void Scheduler::stop() {
     shouldStop.store(true);
     isRunning.store(false);
     
-    // Notify all waiting threads
     processCV.notify_all();
     
-    // Wait for all threads to complete
     for (auto& worker : coreWorkers) {
         if (worker.joinable()) {
             worker.join();
@@ -66,10 +61,8 @@ void Scheduler::coreWorkerThread(int coreId) {
         {
             std::unique_lock<std::mutex> lock(processMutex);
             
-            // Check if there's already a process assigned to this core
             currentProcess = runningProcesses[coreId];
             
-            // If no process assigned, try to get one from ready queue
             if (!currentProcess && !readyQueue.empty()) {
                 currentProcess = readyQueue.front();
                 readyQueue.pop();
@@ -81,7 +74,6 @@ void Scheduler::coreWorkerThread(int coreId) {
         }
         
         if (currentProcess) {
-            // Execute one instruction
             std::string logEntry = currentProcess->executeNextInstruction();
             
             if (!logEntry.empty()) {
@@ -89,14 +81,12 @@ void Scheduler::coreWorkerThread(int coreId) {
                           << " - " << logEntry << std::endl;
             }
             
-            // Check if process is complete
             if (currentProcess->isComplete()) {
                 handleProcessCompletion(currentProcess);
                 
                 std::lock_guard<std::mutex> lock(processMutex);
                 runningProcesses[coreId] = nullptr;
             }
-            // Check for Round Robin preemption
             else if (config->scheduler == "rr") {
                 static std::map<int, int> coreQuantumCounters;
                 coreQuantumCounters[coreId]++;
@@ -113,10 +103,8 @@ void Scheduler::coreWorkerThread(int coreId) {
                 }
             }
             
-            // Execution delay
             std::this_thread::sleep_for(std::chrono::milliseconds(config->delayPerExec));
         } else {
-            // No process to run, wait briefly
             std::unique_lock<std::mutex> lock(processMutex);
             processCV.wait_for(lock, std::chrono::milliseconds(50));
         }
@@ -125,32 +113,26 @@ void Scheduler::coreWorkerThread(int coreId) {
 
 void Scheduler::processCreatorThread() {
     while (!shouldStop.load()) {
-        // Create a new process
         if (createProcess()) {
             std::cout << "New process created automatically." << std::endl;
         }
         
-        // Wait for the specified frequency
         std::this_thread::sleep_for(std::chrono::milliseconds(config->batchProcessFreq * 1000));
     }
 }
 
 bool Scheduler::createProcess(const std::string& name) {
-    // Generate process name if not provided
     std::string processName = name;
     if (processName.empty()) {
         processName = "process" + std::to_string(processCounter.fetch_add(1));
     }
     
-    // Create new process
     auto process = std::make_shared<Process>(processName);
     
-    // Generate random number of instructions
     int instructionCount = Utils::generateRandomInt(
         config->minInstructions, config->maxInstructions);
     process->generateInstructions(instructionCount);
     
-    // Try to allocate memory
     if (!memoryManager->allocate(process->pid, config->memPerProcess)) {
         std::cout << "Failed to create process '" << processName 
                   << "': Insufficient memory." << std::endl;
@@ -178,7 +160,6 @@ void Scheduler::handleProcessCompletion(std::shared_ptr<Process> process) {
     process->updateMetrics();
     process->coreAssignment = -1;
     
-    // Free memory
     memoryManager->deallocate(process->pid);
     
     {
@@ -203,7 +184,6 @@ void Scheduler::displayProcesses() const {
               << std::setw(15) << "Memory (KB)" << std::endl;
     std::cout << std::string(72, '-') << std::endl;
     
-    // Display running processes
     for (size_t i = 0; i < runningProcesses.size(); ++i) {
         if (runningProcesses[i]) {
             auto& p = runningProcesses[i];
@@ -216,7 +196,6 @@ void Scheduler::displayProcesses() const {
         }
     }
     
-    // Display ready processes
     auto readyQueueCopy = readyQueue;
     while (!readyQueueCopy.empty()) {
         auto& p = readyQueueCopy.front();
@@ -229,7 +208,6 @@ void Scheduler::displayProcesses() const {
                   << std::setw(15) << p->memorySize << std::endl;
     }
     
-    // Display some terminated processes (last 5)
     int displayCount = std::min(5, static_cast<int>(terminatedProcesses.size()));
     for (int i = terminatedProcesses.size() - displayCount; i < terminatedProcesses.size(); ++i) {
         auto& p = terminatedProcesses[i];
@@ -247,7 +225,6 @@ void Scheduler::displayProcesses() const {
 void Scheduler::displaySystemStatus() const {
     std::lock_guard<std::mutex> lock(processMutex);
     
-    // Calculate CPU utilization
     int busyCores = 0;
     for (const auto& process : runningProcesses) {
         if (process != nullptr) busyCores++;
@@ -268,7 +245,6 @@ void Scheduler::displaySystemStatus() const {
     std::cout << "  Ready: " << readyQueue.size() << std::endl;
     std::cout << "  Terminated: " << terminatedProcesses.size() << std::endl;
     
-    // Calculate system metrics
     if (!terminatedProcesses.empty()) {
         double avgTurnaround = 0, avgWaiting = 0;
         for (const auto& p : terminatedProcesses) {
@@ -305,14 +281,12 @@ void Scheduler::generateReport(const std::string& filename) const {
     file << "Generated: " << Utils::getCurrentTimestamp() << std::endl;
     file << std::string(50, '=') << std::endl;
     
-    // System configuration
     file << "\nSystem Configuration:" << std::endl;
     file << "CPU Cores: " << config->numCpu << std::endl;
     file << "Scheduler Algorithm: " << config->scheduler << std::endl;
     file << "Quantum Cycles: " << config->quantumCycles << std::endl;
     file << "Memory: " << config->maxOverallMem << " KB" << std::endl;
     
-    // Current status (similar to displaySystemStatus but to file)
     int busyCores = 0;
     for (const auto& process : runningProcesses) {
         if (process != nullptr) busyCores++;
@@ -325,7 +299,6 @@ void Scheduler::generateReport(const std::string& filename) const {
     file << "Ready Queue: " << readyQueue.size() << std::endl;
     file << "Completed Processes: " << terminatedProcesses.size() << std::endl;
     
-    // Detailed process information
     file << "\nProcess Details:" << std::endl;
     file << std::left << std::setw(12) << "PID" 
          << std::setw(15) << "Name"

@@ -1,6 +1,5 @@
-#include "main.cpp"
+#include "emulator.h"
 
-// Enhanced CommandProcessor Implementation
 CommandProcessor::CommandProcessor() {
     initializeCommands();
 }
@@ -42,7 +41,7 @@ void CommandProcessor::run() {
     std::string input;
     
     while (true) {
-        Utils::setTextColor(36); // Cyan
+        Utils::setTextColor(36); 
         std::cout << "\nEnter a command: ";
         Utils::resetTextColor();
         
@@ -50,7 +49,6 @@ void CommandProcessor::run() {
         
         if (input.empty()) continue;
         
-        // Convert to lowercase for command matching
         std::string lowerInput = input;
         std::transform(lowerInput.begin(), lowerInput.end(), lowerInput.begin(), ::tolower);
         
@@ -68,7 +66,6 @@ void CommandProcessor::run() {
         
         std::string command = tokens[0];
         
-        // Handle special cases for compound commands
         if (tokens.size() >= 2) {
             if (command == "screen") {
                 command = "screen";
@@ -90,12 +87,12 @@ void CommandProcessor::run() {
             try {
                 it->second(tokens);
             } catch (const std::exception& e) {
-                Utils::setTextColor(31); // Red
+                Utils::setTextColor(31); 
                 std::cerr << "Error executing command: " << e.what() << std::endl;
                 Utils::resetTextColor();
             }
         } else {
-            Utils::setTextColor(33); // Yellow
+            Utils::setTextColor(33); 
             std::cout << "Command not recognized. Type 'help' for available commands." << std::endl;
             Utils::resetTextColor();
         }
@@ -104,7 +101,7 @@ void CommandProcessor::run() {
 
 void CommandProcessor::displayHeader() {
     Utils::clearScreen();
-    Utils::setTextColor(34); // Blue
+    Utils::setTextColor(34); 
     
     std::cout << R"(
      _/_/_/    _/_/_/    _/_/    _/_/_/    _/_/_/_/    _/_/_/  _/      _/  
@@ -114,7 +111,7 @@ _/              _/  _/    _/  _/        _/              _/      _/
  _/_/_/  _/_/_/      _/_/    _/        _/_/_/_/  _/_/_/        _/          
 )" << std::endl;
     
-    Utils::setTextColor(32); // Green
+    Utils::setTextColor(32);
     std::cout << "Welcome to CSOPESY Enhanced OS Emulator!" << std::endl;
     std::cout << "Type 'help' to see available commands or 'exit' to quit." << std::endl;
     Utils::resetTextColor();
@@ -133,11 +130,11 @@ void CommandProcessor::handleInitialize(const std::vector<std::string>& args) {
         scheduler = std::make_unique<Scheduler>(std::move(config));
         initialized = true;
         
-        Utils::setTextColor(32); // Green
+        Utils::setTextColor(32); 
         std::cout << "System initialized successfully!" << std::endl;
         Utils::resetTextColor();
     } else {
-        Utils::setTextColor(31); // Red
+        Utils::setTextColor(31);
         std::cout << "Failed to initialize system. Check config file: " << configFile << std::endl;
         Utils::resetTextColor();
     }
@@ -156,17 +153,15 @@ void CommandProcessor::handleScreenS(const std::vector<std::string>& args) {
     
     std::string processName = args[0];
     
-    // Create the process if it doesn't exist
     auto process = scheduler->findProcess(processName);
     if (!process) {
         if (scheduler->createProcess(processName)) {
             process = scheduler->findProcess(processName);
         } else {
-            return; // Process creation failed
+            return; 
         }
     }
     
-    // Enter screen session simulation
     Utils::clearScreen();
     std::cout << "=== Screen Session: " << processName << " ===" << std::endl;
     std::cout << "Process ID: " << process->pid << std::endl;
@@ -184,7 +179,6 @@ void CommandProcessor::handleScreenS(const std::vector<std::string>& args) {
     
     std::cout << "\nCommands: 'process-smi' for details, 'exit' to return" << std::endl;
     
-    // Simple screen session loop
     std::string input;
     while (true) {
         std::cout << process->name << "$ ";
@@ -220,7 +214,7 @@ void CommandProcessor::handleScreenR(const std::vector<std::string>& args) {
         return;
     }
     
-    handleScreenS({processName}); // Reuse screen session logic
+    handleScreenS({processName}); 
 }
 
 void CommandProcessor::handleScreenLS(const std::vector<std::string>& args) {
@@ -240,11 +234,11 @@ void CommandProcessor::handleSchedulerStart(const std::vector<std::string>& args
     }
     
     if (scheduler->start()) {
-        Utils::setTextColor(32); // Green
+        Utils::setTextColor(32); 
         std::cout << "Scheduler started successfully!" << std::endl;
         Utils::resetTextColor();
     } else {
-        Utils::setTextColor(33); // Yellow
+        Utils::setTextColor(33); 
         std::cout << "Scheduler is already running." << std::endl;
         Utils::resetTextColor();
     }
@@ -257,7 +251,7 @@ void CommandProcessor::handleSchedulerStop(const std::vector<std::string>& args)
     }
     
     scheduler->stop();
-    Utils::setTextColor(32); // Green
+    Utils::setTextColor(32); 
     std::cout << "Scheduler stopped successfully!" << std::endl;
     Utils::resetTextColor();
 }
@@ -283,11 +277,9 @@ void CommandProcessor::handleProcessSMI(const std::vector<std::string>& args) {
     }
     
     if (args.empty()) {
-        // Show system-wide process information
         scheduler->displaySystemStatus();
         scheduler->displayProcesses();
     } else {
-        // Show specific process information
         std::string processName = args[0];
         auto process = scheduler->findProcess(processName);
         
@@ -316,7 +308,7 @@ void CommandProcessor::handleProcessSMI(const std::vector<std::string>& args) {
 }
 
 void CommandProcessor::handleHelp(const std::vector<std::string>& args) {
-    Utils::setTextColor(36); // Cyan
+    Utils::setTextColor(36); 
     std::cout << "\n=== CSOPESY Enhanced Commands ===" << std::endl;
     Utils::resetTextColor();
     
@@ -333,7 +325,7 @@ void CommandProcessor::handleHelp(const std::vector<std::string>& args) {
     std::cout << std::setw(25) << "help" << "Show this help message" << std::endl;
     std::cout << std::setw(25) << "exit" << "Exit the emulator" << std::endl;
     
-    Utils::setTextColor(33); // Yellow
+    Utils::setTextColor(33); 
     std::cout << "\nScreen Session Commands:" << std::endl;
     Utils::resetTextColor();
     std::cout << std::setw(25) << "process-smi" << "Show process details within screen" << std::endl;

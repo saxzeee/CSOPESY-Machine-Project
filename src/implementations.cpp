@@ -1,12 +1,10 @@
-#include "main.cpp"
+#include "emulator.h"
 
-// Enhanced Process Implementation
 Process::Process(const std::string& processName) 
     : name(processName), state(ProcessState::NEW), priority(0), 
       coreAssignment(-1), memoryAddress(-1), memorySize(0),
       executedInstructions(0), totalInstructions(0) {
     
-    // Generate unique PID
     static std::atomic<int> pidCounter{1};
     pid = "p" + std::string(3 - std::to_string(pidCounter.load()).length(), '0') + 
           std::to_string(pidCounter.fetch_add(1));
@@ -21,7 +19,6 @@ void Process::generateInstructions(int count) {
     remainingTime = count;
     burstTime = count;
     
-    // Generate diverse instruction types
     std::vector<std::string> instructionTypes = {
         "LOAD", "STORE", "ADD", "SUB", "MUL", "DIV", 
         "CMP", "JMP", "CALL", "RET", "PUSH", "POP"
@@ -47,7 +44,6 @@ std::string Process::executeNextInstruction() {
     std::string instruction = pendingInstructions.front();
     pendingInstructions.pop();
     
-    // Simulate instruction execution
     std::string timestamp = Utils::getCurrentTimestamp();
     std::string logEntry = "(" + timestamp + ") " + instruction;
     
@@ -55,7 +51,6 @@ std::string Process::executeNextInstruction() {
     executedInstructions++;
     remainingTime--;
     
-    // Set response time on first execution
     if (responseTime == -1) {
         responseTime = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::high_resolution_clock::now().time_since_epoch()).count() - arrivalTime;
@@ -90,17 +85,16 @@ std::string Process::getStateString() const {
     }
 }
 
-// Enhanced MemoryManager Implementation
 MemoryManager::MemoryManager(int totalMem, int frameSize) 
     : totalMemory(totalMem), frameSize(frameSize) {
     int numFrames = totalMemory / frameSize;
-    memoryMap.resize(numFrames, false); // false = free, true = allocated
+    memoryMap.resize(numFrames, false); 
 }
 
 bool MemoryManager::allocate(const std::string& pid, int size) {
     std::lock_guard<std::mutex> lock(memoryMutex);
     
-    int framesNeeded = (size + frameSize - 1) / frameSize; // Ceiling division
+    int framesNeeded = (size + frameSize - 1) / frameSize; 
     int totalFrames = memoryMap.size();
     
     int startFrame = -1;
@@ -167,10 +161,9 @@ bool MemoryManager::allocate(const std::string& pid, int size) {
     }
     
     if (startFrame == -1) {
-        return false; // No suitable block found
+        return false; 
     }
     
-    // Allocate the frames
     for (int i = startFrame; i < startFrame + framesNeeded; ++i) {
         memoryMap[i] = true;
     }
@@ -184,7 +177,7 @@ bool MemoryManager::deallocate(const std::string& pid) {
     
     auto it = allocatedProcesses.find(pid);
     if (it == allocatedProcesses.end()) {
-        return false; // Process not found
+        return false; 
     }
     
     int startAddress = it->second.first;
@@ -192,7 +185,6 @@ bool MemoryManager::deallocate(const std::string& pid) {
     int startFrame = startAddress / frameSize;
     int framesCount = (size + frameSize - 1) / frameSize;
     
-    // Free the frames
     for (int i = startFrame; i < startFrame + framesCount; ++i) {
         memoryMap[i] = false;
     }
@@ -217,7 +209,6 @@ void MemoryManager::displayMemoryMap() const {
                   << ", Size " << allocation.second << " KB" << std::endl;
     }
     
-    // Visual representation
     std::cout << "\nMemory Layout: ";
     const int maxDisplay = 50;
     int step = std::max(1, static_cast<int>(memoryMap.size()) / maxDisplay);
@@ -259,13 +250,11 @@ int MemoryManager::getAvailableMemory() const {
 void MemoryManager::compact() {
     std::lock_guard<std::mutex> lock(memoryMutex);
     
-    // Simple compaction: move all allocated blocks to the beginning
     std::vector<bool> newMemoryMap(memoryMap.size(), false);
     std::map<std::string, std::pair<int, int>> newAllocations;
     
     int nextFreeFrame = 0;
     
-    // Sort processes by current address for stable compaction
     std::vector<std::pair<std::string, std::pair<int, int>>> sortedProcesses(
         allocatedProcesses.begin(), allocatedProcesses.end());
     
@@ -278,7 +267,6 @@ void MemoryManager::compact() {
         int size = allocation.second;
         int framesNeeded = (size + frameSize - 1) / frameSize;
         
-        // Allocate at next available position
         for (int i = 0; i < framesNeeded; ++i) {
             newMemoryMap[nextFreeFrame + i] = true;
         }
@@ -293,7 +281,6 @@ void MemoryManager::compact() {
     std::cout << "Memory compaction completed." << std::endl;
 }
 
-// Utility function implementations
 namespace Utils {
     std::string getCurrentTimestamp() {
         auto now = std::chrono::system_clock::now();

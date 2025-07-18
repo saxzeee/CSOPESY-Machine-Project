@@ -16,17 +16,15 @@
 #include <random>
 #include <functional>
 
-// Forward declarations
 class Process;
 class Scheduler;
 class MemoryManager;
 class SystemConfig;
 class CommandProcessor;
 
-// Enhanced system-wide configuration
 struct SystemConfig {
     int numCpu = 4;
-    std::string scheduler = "fcfs";  // fcfs, rr, priority
+    std::string scheduler = "fcfs";  
     int quantumCycles = 5;
     int batchProcessFreq = 1;
     int minInstructions = 1000;
@@ -40,7 +38,6 @@ struct SystemConfig {
     void display() const;
 };
 
-// Enhanced Process State Management
 enum class ProcessState {
     NEW,
     READY,
@@ -49,7 +46,6 @@ enum class ProcessState {
     TERMINATED
 };
 
-// Comprehensive Process Control Block
 class Process {
 public:
     std::string pid;
@@ -69,7 +65,6 @@ public:
     std::vector<std::string> instructionHistory;
     std::queue<std::string> pendingInstructions;
     
-    // Performance metrics
     int waitingTime = 0;
     int turnaroundTime = 0;
     int responseTime = -1;
@@ -82,13 +77,12 @@ public:
     std::string getStateString() const;
 };
 
-// Advanced Memory Management with multiple allocation strategies
 class MemoryManager {
 private:
     int totalMemory;
     int frameSize;
     std::vector<bool> memoryMap;
-    std::map<std::string, std::pair<int, int>> allocatedProcesses; // pid -> (address, size)
+    std::map<std::string, std::pair<int, int>> allocatedProcesses; 
     mutable std::mutex memoryMutex;
     
 public:
@@ -106,34 +100,29 @@ public:
     void displayMemoryMap() const;
     double getFragmentation() const;
     int getAvailableMemory() const;
-    void compact(); // Defragmentation
+    void compact(); 
 };
 
-// High-performance Scheduler with pluggable algorithms
 class Scheduler {
 private:
     std::unique_ptr<SystemConfig> config;
     std::unique_ptr<MemoryManager> memoryManager;
     
-    // Process management
     std::vector<std::shared_ptr<Process>> allProcesses;
     std::queue<std::shared_ptr<Process>> readyQueue;
-    std::vector<std::shared_ptr<Process>> runningProcesses; // One per core
+    std::vector<std::shared_ptr<Process>> runningProcesses; 
     std::queue<std::shared_ptr<Process>> waitingQueue;
     std::vector<std::shared_ptr<Process>> terminatedProcesses;
     
-    // Threading and synchronization
     std::vector<std::thread> coreWorkers;
     std::atomic<bool> isRunning{false};
     std::atomic<bool> shouldStop{false};
     mutable std::mutex processMutex;
     std::condition_variable processCV;
     
-    // Performance tracking
     std::atomic<int> processCounter{1};
     std::chrono::high_resolution_clock::time_point systemStartTime;
     
-    // Core scheduling methods
     void coreWorkerThread(int coreId);
     void processCreatorThread();
     std::shared_ptr<Process> selectNextProcess();
@@ -154,7 +143,6 @@ public:
     bool isSystemRunning() const { return isRunning.load(); }
 };
 
-// Enhanced Command Processing with better error handling
 class CommandProcessor {
 private:
     std::unique_ptr<Scheduler> scheduler;
@@ -164,7 +152,6 @@ private:
     void initializeCommands();
     std::vector<std::string> parseCommand(const std::string& input);
     
-    // Command handlers
     void handleInitialize(const std::vector<std::string>& args);
     void handleScreenS(const std::vector<std::string>& args);
     void handleScreenR(const std::vector<std::string>& args);
@@ -182,7 +169,6 @@ public:
     void displayHeader();
 };
 
-// Utility functions
 namespace Utils {
     std::string getCurrentTimestamp();
     void clearScreen();
@@ -192,7 +178,6 @@ namespace Utils {
     int generateRandomInt(int min, int max);
 }
 
-// Implementation of SystemConfig
 bool SystemConfig::loadFromFile(const std::string& filename) {
     std::ifstream file(filename);
     if (!file.is_open()) {
@@ -202,10 +187,9 @@ bool SystemConfig::loadFromFile(const std::string& filename) {
     
     std::string line;
     while (std::getline(file, line)) {
-        // Remove whitespace
         line.erase(std::remove_if(line.begin(), line.end(), ::isspace), line.end());
         
-        if (line.empty() || line[0] == '#') continue; // Skip comments and empty lines
+        if (line.empty() || line[0] == '#') continue; 
         
         size_t pos = line.find('=');
         if (pos == std::string::npos) continue;
@@ -246,7 +230,6 @@ void SystemConfig::display() const {
     std::cout << "=============================" << std::endl;
 }
 
-// Main function
 int main() {
     try {
         CommandProcessor processor;

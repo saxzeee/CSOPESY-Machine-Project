@@ -1,6 +1,3 @@
-// CSOPESY Enhanced OS Emulator - Complete Implementation
-// This is a complete rewrite with modern C++ practices and robust architecture
-
 #include <iostream>
 #include <string>
 #include <memory>
@@ -18,11 +15,11 @@
 #include <sstream>
 #include <random>
 #include <functional>
+#include <set>
 
-// Enhanced system-wide configuration
 struct SystemConfig {
     int numCpu = 4;
-    std::string scheduler = "fcfs";  // fcfs, rr, priority
+    std::string scheduler = "fcfs";
     int quantumCycles = 5;
     int batchProcessFreq = 1;
     int minInstructions = 1000;
@@ -41,10 +38,9 @@ struct SystemConfig {
         
         std::string line;
         while (std::getline(file, line)) {
-            // Remove whitespace
             line.erase(std::remove_if(line.begin(), line.end(), ::isspace), line.end());
             
-            if (line.empty() || line[0] == '#') continue; // Skip comments and empty lines
+            if (line.empty() || line[0] == '#') continue;
             
             size_t pos = line.find('=');
             if (pos == std::string::npos) continue;
@@ -87,7 +83,6 @@ struct SystemConfig {
     }
 };
 
-// Enhanced Process State Management
 enum class ProcessState {
     NEW,
     READY,
@@ -96,7 +91,6 @@ enum class ProcessState {
     TERMINATED
 };
 
-// Utility functions
 namespace Utils {
     std::string getCurrentTimestamp() {
         auto now = std::chrono::system_clock::now();
@@ -144,7 +138,6 @@ namespace Utils {
     }
 }
 
-// Comprehensive Process Control Block
 class Process {
 public:
     std::string pid;
@@ -164,7 +157,6 @@ public:
     std::vector<std::string> instructionHistory;
     std::queue<std::string> pendingInstructions;
     
-    // Performance metrics
     int waitingTime = 0;
     int turnaroundTime = 0;
     int responseTime = -1;
@@ -174,7 +166,6 @@ public:
           coreAssignment(-1), memoryAddress(-1), memorySize(0),
           executedInstructions(0), totalInstructions(0) {
         
-        // Generate unique PID
         static std::atomic<int> pidCounter{1};
         pid = "p" + std::string(3 - std::to_string(pidCounter.load()).length(), '0') + 
               std::to_string(pidCounter.fetch_add(1));
@@ -189,20 +180,139 @@ public:
         remainingTime = count;
         burstTime = count;
         
-        // Generate diverse instruction types
-        std::vector<std::string> instructionTypes = {
-            "LOAD", "STORE", "ADD", "SUB", "MUL", "DIV", 
-            "CMP", "JMP", "CALL", "RET", "PUSH", "POP"
-        };
-        
         std::random_device rd;
         std::mt19937 gen(rd());
-        std::uniform_int_distribution<> typeDist(0, instructionTypes.size() - 1);
-        std::uniform_int_distribution<> valueDist(1, 1000);
+        
+        std::vector<std::string> varNames = {"x", "y", "z", "counter", "sum", "temp", "result", "value"};
+        
+        std::uniform_int_distribution<> varDist(0, varNames.size() - 1);
+        std::uniform_int_distribution<> valueDist(1, 100);
+        std::uniform_int_distribution<> sleepDist(1, 5);
+        std::uniform_int_distribution<> forRepeatsDist(2, 5);
+        
+        std::vector<std::pair<std::string, int>> instructionWeights = {
+            {"DECLARE", 15},   
+            {"ADD", 20},       
+            {"SUBTRACT", 15},    
+            {"PRINT", 25},     
+            {"SLEEP", 10},      
+            {"FOR", 15}         
+        };
+        
+        std::vector<std::string> weightedInstructions;
+        for (const auto& pair : instructionWeights) {
+            for (int i = 0; i < pair.second; ++i) {
+                weightedInstructions.push_back(pair.first);
+            }
+        }
+        std::uniform_int_distribution<> instDist(0, weightedInstructions.size() - 1);
+        
+        std::set<std::string> declaredVars;
+        int currentNestingLevel = 0; 
         
         for (int i = 0; i < count; ++i) {
-            std::string instruction = instructionTypes[typeDist(gen)] + " " + 
-                                    std::to_string(valueDist(gen));
+            std::string instructionType = weightedInstructions[instDist(gen)];
+            std::string instruction;
+            
+            if (instructionType == "DECLARE") {
+                std::string var = varNames[varDist(gen)];
+                int value = valueDist(gen);
+                instruction = "DECLARE(" + var + ", " + std::to_string(value) + ")";
+                declaredVars.insert(var);
+                
+            } else if (instructionType == "ADD") {
+                std::string var1 = varNames[varDist(gen)];
+                std::string var2 = varNames[varDist(gen)];
+                
+                if (gen() % 2 == 0) {
+                    int value = valueDist(gen);
+                    instruction = "ADD(" + var1 + ", " + var2 + ", " + std::to_string(value) + ")";
+                } else {
+                    std::string var3 = varNames[varDist(gen)];
+                    instruction = "ADD(" + var1 + ", " + var2 + ", " + var3 + ")";
+                }
+                declaredVars.insert(var1);
+                
+            } else if (instructionType == "SUBTRACT") {
+                std::string var1 = varNames[varDist(gen)];
+                std::string var2 = varNames[varDist(gen)];
+                
+                if (gen() % 2 == 0) {
+                    int value = valueDist(gen);
+                    instruction = "SUBTRACT(" + var1 + ", " + var2 + ", " + std::to_string(value) + ")";
+                } else {
+                    std::string var3 = varNames[varDist(gen)];
+                    instruction = "SUBTRACT(" + var1 + ", " + var2 + ", " + var3 + ")";
+                }
+                declaredVars.insert(var1);
+                
+            } else if (instructionType == "PRINT") {
+                if (!declaredVars.empty() && gen() % 3 == 0) {
+                    auto it = declaredVars.begin();
+                    std::advance(it, gen() % declaredVars.size());
+                    std::string var = *it;
+                    instruction = "PRINT(\"Hello world from " + name + "!\" + " + var + ")";
+                } else {
+                    instruction = "PRINT(\"Hello world from " + name + "!\")";
+                }
+                
+            } else if (instructionType == "SLEEP") {
+                int ticks = sleepDist(gen);
+                instruction = "SLEEP(" + std::to_string(ticks) + ")";
+                
+            } else if (instructionType == "FOR") {
+                if (currentNestingLevel < 3) {
+                    currentNestingLevel++;
+                    
+                    int repeats = forRepeatsDist(gen);
+                    int innerInstructions = std::min(2, count - i - 1);
+                    
+                    std::vector<std::string> forBody;
+                    for (int j = 0; j < innerInstructions; ++j) {
+                        std::string innerType = weightedInstructions[instDist(gen)];
+                        
+                        if (innerType == "FOR" && currentNestingLevel >= 3) {
+                            innerType = "ADD"; 
+                        }
+                        
+                        std::string innerInstruction;
+                        if (innerType == "ADD") {
+                            std::string var = "counter";
+                            innerInstruction = "ADD(" + var + ", " + var + ", 1)";
+                        } else if (innerType == "PRINT") {
+                            innerInstruction = "PRINT(\"Hello world from " + name + "!\")";
+                        } else if (innerType == "DECLARE") {
+                            std::string var = varNames[varDist(gen)];
+                            int value = valueDist(gen);
+                            innerInstruction = "DECLARE(" + var + ", " + std::to_string(value) + ")";
+                        } else if (innerType == "FOR" && currentNestingLevel < 3) {
+                            innerInstruction = "FOR([ADD(counter, counter, 1)], 2)";
+                            currentNestingLevel++; 
+                        } else {
+                            innerInstruction = "ADD(counter, counter, 1)";
+                        }
+                        forBody.push_back(innerInstruction);
+                    }
+                    
+                    instruction = "FOR([";
+                    for (size_t k = 0; k < forBody.size(); ++k) {
+                        instruction += forBody[k];
+                        if (k < forBody.size() - 1) instruction += ", ";
+                    }
+                    instruction += "], " + std::to_string(repeats) + ")";
+                    
+                    currentNestingLevel--; 
+                    
+                    i += innerInstructions;
+                } else {
+                    std::string var1 = varNames[varDist(gen)];
+                    std::string var2 = varNames[varDist(gen)];
+                    int value = valueDist(gen);
+                    instruction = "ADD(" + var1 + ", " + var2 + ", " + std::to_string(value) + ")";
+                    declaredVars.insert(var1);
+                }
+            }
+            
             pendingInstructions.push(instruction);
         }
     }
@@ -215,15 +325,18 @@ public:
         std::string instruction = pendingInstructions.front();
         pendingInstructions.pop();
         
-        // Simulate instruction execution
         std::string timestamp = Utils::getCurrentTimestamp();
+        std::string result = processInstruction(instruction);
         std::string logEntry = "(" + timestamp + ") " + instruction;
+        
+        if (!result.empty()) {
+            logEntry += " -> " + result;
+        }
         
         instructionHistory.push_back(logEntry);
         executedInstructions++;
         remainingTime--;
         
-        // Set response time on first execution
         if (responseTime == -1) {
             responseTime = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::high_resolution_clock::now().time_since_epoch()).count() - arrivalTime;
@@ -231,6 +344,160 @@ public:
         
         return logEntry;
     }
+    
+private:
+    std::map<std::string, uint16_t> variables;
+    
+    std::string processInstruction(const std::string& instruction) {
+        if (instruction.find("DECLARE(") == 0) {
+            return processDeclare(instruction);
+        } else if (instruction.find("ADD(") == 0) {
+            return processAdd(instruction);
+        } else if (instruction.find("SUBTRACT(") == 0) {
+            return processSubtract(instruction);
+        } else if (instruction.find("PRINT(") == 0) {
+            return processPrint(instruction);
+        } else if (instruction.find("SLEEP(") == 0) {
+            return processSleep(instruction);
+        } else if (instruction.find("FOR(") == 0) {
+            return processFor(instruction);
+        }
+        return "";
+    }
+    
+    std::string processDeclare(const std::string& instruction) {
+        size_t start = instruction.find('(') + 1;
+        size_t end = instruction.find(')', start);
+        std::string params = instruction.substr(start, end - start);
+        
+        size_t comma = params.find(',');
+        if (comma != std::string::npos) {
+            std::string varName = params.substr(0, comma);
+            std::string valueStr = params.substr(comma + 1);
+            
+            varName.erase(std::remove_if(varName.begin(), varName.end(), ::isspace), varName.end());
+            valueStr.erase(std::remove_if(valueStr.begin(), valueStr.end(), ::isspace), valueStr.end());
+            
+            int value = std::stoi(valueStr);
+            uint16_t clampedValue = static_cast<uint16_t>(std::max(0, std::min(value, static_cast<int>(UINT16_MAX))));
+            variables[varName] = clampedValue;
+            
+            return "Declared " + varName + " = " + std::to_string(clampedValue);
+        }
+        return "";
+    }
+    
+    std::string processAdd(const std::string& instruction) {
+        size_t start = instruction.find('(') + 1;
+        size_t end = instruction.find(')', start);
+        std::string params = instruction.substr(start, end - start);
+        
+        std::vector<std::string> tokens;
+        std::stringstream ss(params);
+        std::string token;
+        while (std::getline(ss, token, ',')) {
+            token.erase(std::remove_if(token.begin(), token.end(), ::isspace), token.end());
+            tokens.push_back(token);
+        }
+        
+        if (tokens.size() == 3) {
+            std::string var1 = tokens[0];
+            uint16_t val2 = getVariableOrValue(tokens[1]);
+            uint16_t val3 = getVariableOrValue(tokens[2]);
+            
+            uint32_t result32 = static_cast<uint32_t>(val2) + static_cast<uint32_t>(val3);
+            uint16_t result = static_cast<uint16_t>(std::min(result32, static_cast<uint32_t>(UINT16_MAX)));
+            
+            variables[var1] = result;
+            
+            return var1 + " = " + std::to_string(val2) + " + " + std::to_string(val3) + " = " + std::to_string(result);
+        }
+        return "";
+    }
+    
+    std::string processSubtract(const std::string& instruction) {
+        size_t start = instruction.find('(') + 1;
+        size_t end = instruction.find(')', start);
+        std::string params = instruction.substr(start, end - start);
+        
+        std::vector<std::string> tokens;
+        std::stringstream ss(params);
+        std::string token;
+        while (std::getline(ss, token, ',')) {
+            token.erase(std::remove_if(token.begin(), token.end(), ::isspace), token.end());
+            tokens.push_back(token);
+        }
+        
+        if (tokens.size() == 3) {
+            std::string var1 = tokens[0];
+            uint16_t val2 = getVariableOrValue(tokens[1]);
+            uint16_t val3 = getVariableOrValue(tokens[2]);
+            
+            uint16_t result = (val2 > val3) ? (val2 - val3) : 0;
+            
+            variables[var1] = result;
+            
+            return var1 + " = " + std::to_string(val2) + " - " + std::to_string(val3) + " = " + std::to_string(result);
+        }
+        return "";
+    }
+    
+    std::string processPrint(const std::string& instruction) {
+        size_t start = instruction.find('(') + 1;
+        size_t end = instruction.find(')', start);
+        std::string content = instruction.substr(start, end - start);
+        
+        if (content.find(" + ") != std::string::npos) {
+            size_t plusPos = content.find(" + ");
+            std::string msgPart = content.substr(0, plusPos);
+            std::string varPart = content.substr(plusPos + 3);
+            
+            if (msgPart.front() == '"' && msgPart.back() == '"') {
+                msgPart = msgPart.substr(1, msgPart.length() - 2);
+            }
+            
+            uint16_t varValue = getVariableOrValue(varPart);
+            return "OUTPUT: " + msgPart + std::to_string(varValue);
+        } else {
+            if (content.front() == '"' && content.back() == '"') {
+                content = content.substr(1, content.length() - 2);
+            }
+            return "OUTPUT: " + content;
+        }
+    }
+    
+    std::string processSleep(const std::string& instruction) {
+        size_t start = instruction.find('(') + 1;
+        size_t end = instruction.find(')', start);
+        std::string ticksStr = instruction.substr(start, end - start);
+        
+        int ticks = std::stoi(ticksStr);
+        return "Sleeping for " + std::to_string(ticks) + " CPU ticks";
+    }
+    
+    std::string processFor(const std::string& instruction) {
+        size_t repeatStart = instruction.rfind(',') + 1;
+        size_t repeatEnd = instruction.find(')', repeatStart);
+        std::string repeatsStr = instruction.substr(repeatStart, repeatEnd - repeatStart);
+        repeatsStr.erase(std::remove_if(repeatsStr.begin(), repeatsStr.end(), ::isspace), repeatsStr.end());
+        
+        int repeats = std::stoi(repeatsStr);
+        return "Executing FOR loop " + std::to_string(repeats) + " times";
+    }
+    
+    uint16_t getVariableOrValue(const std::string& token) {
+        if (std::isdigit(token[0])) {
+            int value = std::stoi(token);
+            return static_cast<uint16_t>(std::max(0, std::min(value, static_cast<int>(UINT16_MAX))));
+        } else {
+            if (variables.find(token) == variables.end()) {
+                variables[token] = 0;
+            }
+            return variables[token];
+        }
+    }
+    
+public:
     
     bool isComplete() const {
         return pendingInstructions.empty() && executedInstructions >= totalInstructions;
@@ -247,6 +514,10 @@ public:
         }
     }
     
+    ~Process() {
+        variables.clear();
+    }
+    
     std::string getStateString() const {
         switch (state) {
             case ProcessState::NEW: return "NEW";
@@ -259,13 +530,12 @@ public:
     }
 };
 
-// Advanced Memory Management with multiple allocation strategies
 class MemoryManager {
 private:
     int totalMemory;
     int frameSize;
     std::vector<bool> memoryMap;
-    std::map<std::string, std::pair<int, int>> allocatedProcesses; // pid -> (address, size)
+    std::map<std::string, std::pair<int, int>> allocatedProcesses; 
     mutable std::mutex memoryMutex;
     
 public:
@@ -280,18 +550,17 @@ public:
     MemoryManager(int totalMem, int frameSize) 
         : totalMemory(totalMem), frameSize(frameSize) {
         int numFrames = totalMemory / frameSize;
-        memoryMap.resize(numFrames, false); // false = free, true = allocated
+        memoryMap.resize(numFrames, false); 
     }
     
     bool allocate(const std::string& pid, int size) {
         std::lock_guard<std::mutex> lock(memoryMutex);
         
-        int framesNeeded = (size + frameSize - 1) / frameSize; // Ceiling division
+        int framesNeeded = (size + frameSize - 1) / frameSize;
         int totalFrames = memoryMap.size();
         
         int startFrame = -1;
         
-        // First fit strategy (simplified for this example)
         int consecutiveFree = 0;
         for (int i = 0; i < totalFrames; ++i) {
             if (!memoryMap[i]) {
@@ -305,10 +574,9 @@ public:
         }
         
         if (startFrame == -1) {
-            return false; // No suitable block found
+            return false; 
         }
         
-        // Allocate the frames
         for (int i = startFrame; i < startFrame + framesNeeded; ++i) {
             memoryMap[i] = true;
         }
@@ -322,7 +590,7 @@ public:
         
         auto it = allocatedProcesses.find(pid);
         if (it == allocatedProcesses.end()) {
-            return false; // Process not found
+            return false; 
         }
         
         int startAddress = it->second.first;
@@ -330,7 +598,6 @@ public:
         int startFrame = startAddress / frameSize;
         int framesCount = (size + frameSize - 1) / frameSize;
         
-        // Free the frames
         for (int i = startFrame; i < startFrame + framesCount; ++i) {
             memoryMap[i] = false;
         }
@@ -353,7 +620,6 @@ public:
                       << ", Size " << allocation.second << " KB" << std::endl;
         }
         
-        // Visual representation
         std::cout << "\nMemory Layout: ";
         const int maxDisplay = 50;
         int step = std::max(1, static_cast<int>(memoryMap.size()) / maxDisplay);
@@ -374,29 +640,24 @@ public:
     }
 };
 
-// Forward declaration
 class Scheduler;
 
-// High-performance Scheduler with pluggable algorithms
 class Scheduler {
 private:
     std::unique_ptr<SystemConfig> config;
     std::unique_ptr<MemoryManager> memoryManager;
     
-    // Process management
     std::vector<std::shared_ptr<Process>> allProcesses;
     std::queue<std::shared_ptr<Process>> readyQueue;
-    std::vector<std::shared_ptr<Process>> runningProcesses; // One per core
+    std::vector<std::shared_ptr<Process>> runningProcesses; 
     std::vector<std::shared_ptr<Process>> terminatedProcesses;
     
-    // Threading and synchronization
     std::vector<std::thread> coreWorkers;
     std::atomic<bool> isRunning{false};
     std::atomic<bool> shouldStop{false};
     mutable std::mutex processMutex;
     std::condition_variable processCV;
     
-    // Performance tracking
     std::atomic<int> processCounter{1};
     std::chrono::high_resolution_clock::time_point systemStartTime;
     
@@ -407,10 +668,8 @@ private:
             {
                 std::unique_lock<std::mutex> lock(processMutex);
                 
-                // Check if there's already a process assigned to this core
                 currentProcess = runningProcesses[coreId];
                 
-                // If no process assigned, try to get one from ready queue
                 if (!currentProcess && !readyQueue.empty()) {
                     currentProcess = readyQueue.front();
                     readyQueue.pop();
@@ -422,17 +681,14 @@ private:
             }
             
             if (currentProcess) {
-                // Execute one instruction
                 std::string logEntry = currentProcess->executeNextInstruction();
                 
-                // Check if process is complete
                 if (currentProcess->isComplete()) {
                     handleProcessCompletion(currentProcess);
                     
                     std::lock_guard<std::mutex> lock(processMutex);
                     runningProcesses[coreId] = nullptr;
                 }
-                // Check for Round Robin preemption
                 else if (config->scheduler == "rr") {
                     static std::map<int, int> coreQuantumCounters;
                     coreQuantumCounters[coreId]++;
@@ -449,10 +705,8 @@ private:
                     }
                 }
                 
-                // Execution delay
                 std::this_thread::sleep_for(std::chrono::milliseconds(config->delayPerExec));
             } else {
-                // No process to run, wait briefly
                 std::unique_lock<std::mutex> lock(processMutex);
                 processCV.wait_for(lock, std::chrono::milliseconds(50));
             }
@@ -461,10 +715,8 @@ private:
     
     void processCreatorThread() {
         while (!shouldStop.load()) {
-            // Create a new process
             createProcess();
             
-            // Wait for the specified frequency
             std::this_thread::sleep_for(std::chrono::seconds(config->batchProcessFreq));
         }
     }
@@ -474,7 +726,6 @@ private:
         process->updateMetrics();
         process->coreAssignment = -1;
         
-        // Free memory
         memoryManager->deallocate(process->pid);
         
         {
@@ -482,7 +733,6 @@ private:
             terminatedProcesses.push_back(process);
         }
         
-        // Process completed silently during scheduler operation
     }
     
 public:
@@ -509,13 +759,11 @@ public:
         shouldStop.store(false);
         isRunning.store(true);
         
-        // Start core worker threads
         coreWorkers.clear();
         for (int i = 0; i < config->numCpu; ++i) {
             coreWorkers.emplace_back(&Scheduler::coreWorkerThread, this, i);
         }
         
-        // Start process creator thread
         coreWorkers.emplace_back(&Scheduler::processCreatorThread, this);
         
         std::cout << "Scheduler started with " << config->numCpu << " CPU cores." << std::endl;
@@ -530,10 +778,8 @@ public:
         shouldStop.store(true);
         isRunning.store(false);
         
-        // Notify all waiting threads
         processCV.notify_all();
         
-        // Wait for all threads to complete
         for (auto& worker : coreWorkers) {
             if (worker.joinable()) {
                 worker.join();
@@ -545,21 +791,17 @@ public:
     }
     
     bool createProcess(const std::string& name = "") {
-        // Generate process name if not provided
         std::string processName = name;
         if (processName.empty()) {
             processName = "process" + std::to_string(processCounter.fetch_add(1));
         }
         
-        // Create new process
         auto process = std::make_shared<Process>(processName);
         
-        // Generate random number of instructions
         int instructionCount = Utils::generateRandomInt(
             config->minInstructions, config->maxInstructions);
         process->generateInstructions(instructionCount);
         
-        // Try to allocate memory
         if (!memoryManager->allocate(process->pid, config->memPerProcess)) {
             std::cout << "Failed to create process '" << processName 
                       << "': Insufficient memory." << std::endl;
@@ -577,14 +819,12 @@ public:
         
         processCV.notify_one();
         
-        // Process created silently during scheduler operation
         return true;
     }
     
     void displaySystemStatus() const {
         std::lock_guard<std::mutex> lock(processMutex);
         
-        // Calculate CPU utilization
         int busyCores = 0;
         for (const auto& process : runningProcesses) {
             if (process != nullptr) busyCores++;
@@ -607,7 +847,6 @@ public:
     void displayProcesses() const {
         std::lock_guard<std::mutex> lock(processMutex);
         
-        // Display running processes
         for (size_t i = 0; i < runningProcesses.size(); ++i) {
             if (runningProcesses[i]) {
                 auto& p = runningProcesses[i];
@@ -629,7 +868,6 @@ public:
     }
     
     void generateReport(const std::string& filename) const {
-        // Try to acquire lock with simple try_lock to prevent freezing
         std::unique_lock<std::mutex> lock(processMutex, std::defer_lock);
         if (!lock.try_lock()) {
             std::cout << "System busy, please try generating report again." << std::endl;
@@ -646,14 +884,12 @@ public:
         file << "Generated: " << Utils::getCurrentTimestamp() << std::endl;
         file << std::string(50, '=') << std::endl;
         
-        // System configuration
         file << "\nSystem Configuration:" << std::endl;
         file << "CPU Cores: " << config->numCpu << std::endl;
         file << "Scheduler Algorithm: " << config->scheduler << std::endl;
         file << "Quantum Cycles: " << config->quantumCycles << std::endl;
         file << "Memory: " << config->maxOverallMem << " KB" << std::endl;
         
-        // Current status
         int busyCores = 0;
         for (const auto& process : runningProcesses) {
             if (process != nullptr) busyCores++;
@@ -688,7 +924,6 @@ public:
     }
 };
 
-// Enhanced Command Processing with better error handling
 class CommandProcessor {
 private:
     std::unique_ptr<Scheduler> scheduler;
@@ -709,7 +944,6 @@ private:
     
 public:
     CommandProcessor() {
-        // Initialize command handlers
         commands["initialize"] = [this](const std::vector<std::string>& args) {
             std::string configFile = "config.txt";
             if (args.size() > 1) {
@@ -735,7 +969,7 @@ public:
             }
             
             if (scheduler->start()) {
-                Utils::setTextColor(32); // Green
+                Utils::setTextColor(32); 
                 std::cout << "Scheduler started successfully!" << std::endl;
                 Utils::resetTextColor();
             }
@@ -762,7 +996,6 @@ public:
             } else if (args.size() >= 3 && args[1] == "-s") {
                 std::string processName = args[2];
                 
-                // Create the process if it doesn't exist
                 auto process = scheduler->findProcess(processName);
                 if (!process) {
                     scheduler->createProcess(processName);
@@ -770,9 +1003,8 @@ public:
                 }
                 
                 if (process) {
-                    // Simple screen session simulation  
                     Utils::clearScreen();
-                    Utils::setTextColor(36); // Cyan
+                    Utils::setTextColor(36); 
                     std::cout << "Process name: " << process->name << std::endl;
                     std::cout << "Instruction: Line " << process->executedInstructions << " / " << process->totalInstructions << std::endl;
                     std::cout << "Created at: " << process->creationTimestamp << std::endl;
@@ -812,6 +1044,65 @@ public:
                         }
                     }
                 }
+            } else if (args.size() >= 3 && args[1] == "-r") {
+                std::string processName = args[2];
+                
+                auto process = scheduler->findProcess(processName);
+                if (!process) {
+                    std::cout << "Process " << processName << " not found." << std::endl;
+                    return;
+                }
+                
+                if (process->state == ProcessState::TERMINATED) {
+                    std::cout << "Process " << processName << " has already finished." << std::endl;
+                    return;
+                }
+                
+                Utils::clearScreen();
+                Utils::setTextColor(36); 
+                std::cout << "Process name: " << process->name << std::endl;
+                std::cout << "Instruction: Line " << process->executedInstructions << " / " << process->totalInstructions << std::endl;
+                std::cout << "Created at: " << process->creationTimestamp << std::endl;
+                Utils::resetTextColor();
+                
+                if (!process->instructionHistory.empty()) {
+                    std::cout << "\n--- Process Logs ---" << std::endl;
+                    int start = std::max(0, static_cast<int>(process->instructionHistory.size()) - 10);
+                    for (int i = start; i < process->instructionHistory.size(); ++i) {
+                        std::cout << process->instructionHistory[i] << std::endl;
+                    }
+                }
+                
+                std::string input;
+                while (true) {
+                    std::cout << "\n>> ";
+                    std::getline(std::cin, input);
+                    
+                    if (input == "exit") {
+                        displayHeader();
+                        break;
+                    } else if (input == "process-smi") {
+                        if (!process->instructionHistory.empty()) {
+                            std::cout << "\n--- Process Logs ---" << std::endl;
+                            for (const auto& log : process->instructionHistory) {
+                                std::cout << log << std::endl;
+                            }
+                        } else {
+                            std::cout << "No logs found for this process." << std::endl;
+                        }
+                        
+                        if (process->state == ProcessState::TERMINATED) {
+                            std::cout << "Finished!" << std::endl;
+                        }
+                    } else {
+                        std::cout << "Available commands: process-smi, exit" << std::endl;
+                    }
+                }
+            } else {
+                std::cout << "Usage:" << std::endl;
+                std::cout << "  screen -ls                   List all processes" << std::endl;
+                std::cout << "  screen -s <process_name>     Create new process screen session" << std::endl;
+                std::cout << "  screen -r <process_name>     Resume existing process screen session" << std::endl;
             }
         };
         
@@ -831,8 +1122,8 @@ public:
                 << "|                           CSOPESY OS Emulator Commands                          |\n"
                 << "+---------------------------------------------------------------------------------+\n"
                 << "|  initialize       - Initialize the processor configuration with \"config.txt\".   |\n"
-                << "|  screen -s <n> - Attach or create a screen session for a process.            |\n"
-                << "|  screen -r <n> - Resume an existing screen session if still running.         |\n"
+                << "|  screen -s <n> - Attach or create a screen session for a process.               |\n"
+                << "|  screen -r <n> - Resume an existing screen session if still running.            |\n"
                 << "|       process-smi - Show process info inside screen.                            |\n"
                 << "|       exit        - Exit the screen session.                                    |\n"
                 << "|  screen -ls       - Show current CPU/process usage.                             |\n"
@@ -859,7 +1150,6 @@ public:
             
             if (input.empty()) continue;
             
-            // Convert to lowercase for command matching
             std::string lowerInput = input;
             std::transform(lowerInput.begin(), lowerInput.end(), lowerInput.begin(), ::tolower);
             
@@ -877,7 +1167,6 @@ public:
             
             std::string command = tokens[0];
             
-            // Handle special compound commands
             if (tokens.size() >= 2) {
                 if (command == "scheduler-start" || 
                    (command == "scheduler" && tokens[1] == "start")) {
@@ -895,12 +1184,12 @@ public:
                 try {
                     it->second(tokens);
                 } catch (const std::exception& e) {
-                    Utils::setTextColor(31); // Red
+                    Utils::setTextColor(31); 
                     std::cerr << "Error executing command: " << e.what() << std::endl;
                     Utils::resetTextColor();
                 }
             } else {
-                Utils::setTextColor(33); // Yellow
+                Utils::setTextColor(33); 
                 std::cout << "Command not recognized. Type 'help' for available commands." << std::endl;
                 Utils::resetTextColor();
             }
@@ -909,7 +1198,7 @@ public:
     
     void displayHeader() {
         Utils::clearScreen();
-        Utils::setTextColor(34); // Blue
+        Utils::setTextColor(34); 
         
         std::cout << R"(
      _/_/_/    _/_/_/    _/_/    _/_/_/    _/_/_/_/    _/_/_/  _/      _/  
@@ -919,14 +1208,13 @@ _/              _/  _/    _/  _/        _/              _/      _/
  _/_/_/  _/_/_/      _/_/    _/        _/_/_/_/  _/_/_/        _/                                                                               
 )" << std::endl;
         
-        Utils::setTextColor(32); // Green
+        Utils::setTextColor(32); 
         std::cout << "Welcome to CSOPESY OS Emulator!" << std::endl;
         std::cout << "Type 'exit' to quit, 'clear' to clear the screen." << std::endl;
         Utils::resetTextColor();
     }
 };
 
-// Main function
 int main() {
     try {
         CommandProcessor processor;
