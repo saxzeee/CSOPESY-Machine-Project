@@ -3,9 +3,6 @@
 Scheduler::Scheduler(std::unique_ptr<SystemConfig> cfg) 
     : config(std::move(cfg)) {
     
-    memoryManager = std::make_unique<MemoryManager>(
-        config->maxOverallMem, config->memPerFrame);
-    
     runningProcesses.resize(config->numCpu, nullptr);
     systemStartTime = std::chrono::high_resolution_clock::now();
 }
@@ -133,13 +130,6 @@ bool Scheduler::createProcess(const std::string& name) {
         config->minInstructions, config->maxInstructions);
     process->generateInstructions(instructionCount);
     
-    if (!memoryManager->allocate(process->pid, config->memPerProcess)) {
-        std::cout << "Failed to create process '" << processName 
-                  << "': Insufficient memory." << std::endl;
-        return false;
-    }
-    
-    process->memorySize = config->memPerProcess;
     process->state = ProcessState::READY;
     
     {
@@ -160,8 +150,6 @@ void Scheduler::handleProcessCompletion(std::shared_ptr<Process> process) {
     process->updateMetrics();
     process->coreAssignment = -1;
     
-    memoryManager->deallocate(process->pid);
-    
     {
         std::lock_guard<std::mutex> lock(processMutex);
         terminatedProcesses.push_back(process);
@@ -180,9 +168,8 @@ void Scheduler::displayProcesses() const {
               << std::setw(15) << "Name" 
               << std::setw(10) << "State"
               << std::setw(8) << "Core"
-              << std::setw(12) << "Progress"
-              << std::setw(15) << "Memory (KB)" << std::endl;
-    std::cout << std::string(72, '-') << std::endl;
+              << std::setw(12) << "Progress" << std::endl;
+    std::cout << std::string(57, '-') << std::endl;
     
     for (size_t i = 0; i < runningProcesses.size(); ++i) {
         if (runningProcesses[i]) {
@@ -191,8 +178,7 @@ void Scheduler::displayProcesses() const {
                       << std::setw(15) << p->name
                       << std::setw(10) << p->getStateString()
                       << std::setw(8) << i
-                      << std::setw(12) << (p->executedInstructions + "/" + std::to_string(p->totalInstructions))
-                      << std::setw(15) << p->memorySize << std::endl;
+                      << std::setw(12) << (p->executedInstructions + "/" + std::to_string(p->totalInstructions)) << std::endl;
         }
     }
     
@@ -204,8 +190,7 @@ void Scheduler::displayProcesses() const {
                   << std::setw(15) << p->name
                   << std::setw(10) << p->getStateString()
                   << std::setw(8) << "-"
-                  << std::setw(12) << (p->executedInstructions + "/" + std::to_string(p->totalInstructions))
-                  << std::setw(15) << p->memorySize << std::endl;
+                  << std::setw(12) << (p->executedInstructions + "/" + std::to_string(p->totalInstructions)) << std::endl;
     }
     
     int displayCount = std::min(5, static_cast<int>(terminatedProcesses.size()));
@@ -215,11 +200,10 @@ void Scheduler::displayProcesses() const {
                   << std::setw(15) << p->name
                   << std::setw(10) << p->getStateString()
                   << std::setw(8) << "-"
-                  << std::setw(12) << "FINISHED"
-                  << std::setw(15) << "0" << std::endl;
+                  << std::setw(12) << "FINISHED" << std::endl;
     }
     
-    std::cout << std::string(72, '-') << std::endl;
+    std::cout << std::string(57, '-') << std::endl;
 }
 
 void Scheduler::displaySystemStatus() const {
@@ -285,7 +269,6 @@ void Scheduler::generateReport(const std::string& filename) const {
     file << "CPU Cores: " << config->numCpu << std::endl;
     file << "Scheduler Algorithm: " << config->scheduler << std::endl;
     file << "Quantum Cycles: " << config->quantumCycles << std::endl;
-    file << "Memory: " << config->maxOverallMem << " KB" << std::endl;
     
     int busyCores = 0;
     for (const auto& process : runningProcesses) {

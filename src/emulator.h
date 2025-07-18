@@ -18,7 +18,6 @@
 
 class Process;
 class Scheduler;
-class MemoryManager;
 class SystemConfig;
 class CommandProcessor;
 
@@ -30,9 +29,6 @@ struct SystemConfig {
     int minInstructions = 1000;
     int maxInstructions = 2000;
     int delayPerExec = 100;
-    int maxOverallMem = 1024;
-    int memPerFrame = 16;
-    int memPerProcess = 64;
     
     bool loadFromFile(const std::string& filename);
     void display() const;
@@ -58,8 +54,6 @@ public:
     int executedInstructions;
     int totalInstructions;
     int coreAssignment;
-    int memoryAddress;
-    int memorySize;
     std::string creationTimestamp;
     std::string completionTimestamp;
     std::vector<std::string> instructionHistory;
@@ -77,36 +71,9 @@ public:
     std::string getStateString() const;
 };
 
-class MemoryManager {
-private:
-    int totalMemory;
-    int frameSize;
-    std::vector<bool> memoryMap;
-    std::map<std::string, std::pair<int, int>> allocatedProcesses; 
-    mutable std::mutex memoryMutex;
-    
-public:
-    enum class AllocationStrategy {
-        FIRST_FIT,
-        BEST_FIT,
-        WORST_FIT
-    };
-    
-    AllocationStrategy strategy = AllocationStrategy::FIRST_FIT;
-    
-    MemoryManager(int totalMem, int frameSize);
-    bool allocate(const std::string& pid, int size);
-    bool deallocate(const std::string& pid);
-    void displayMemoryMap() const;
-    double getFragmentation() const;
-    int getAvailableMemory() const;
-    void compact(); 
-};
-
 class Scheduler {
 private:
     std::unique_ptr<SystemConfig> config;
-    std::unique_ptr<MemoryManager> memoryManager;
     
     std::vector<std::shared_ptr<Process>> allProcesses;
     std::queue<std::shared_ptr<Process>> readyQueue;
@@ -205,9 +172,6 @@ bool SystemConfig::loadFromFile(const std::string& filename) {
             else if (key == "min-ins") minInstructions = std::stoi(value);
             else if (key == "max-ins") maxInstructions = std::stoi(value);
             else if (key == "delay-per-exec") delayPerExec = std::stoi(value);
-            else if (key == "max-overall-mem") maxOverallMem = std::stoi(value);
-            else if (key == "mem-per-frame") memPerFrame = std::stoi(value);
-            else if (key == "mem-per-proc") memPerProcess = std::stoi(value);
         } catch (const std::exception& e) {
             std::cerr << "Error parsing config line: " << line << std::endl;
         }
@@ -224,9 +188,6 @@ void SystemConfig::display() const {
     std::cout << "Batch Process Frequency: " << batchProcessFreq << "ms" << std::endl;
     std::cout << "Instructions Range: " << minInstructions << "-" << maxInstructions << std::endl;
     std::cout << "Execution Delay: " << delayPerExec << "ms" << std::endl;
-    std::cout << "Total Memory: " << maxOverallMem << " KB" << std::endl;
-    std::cout << "Memory per Frame: " << memPerFrame << " KB" << std::endl;
-    std::cout << "Memory per Process: " << memPerProcess << " KB" << std::endl;
     std::cout << "=============================" << std::endl;
 }
 

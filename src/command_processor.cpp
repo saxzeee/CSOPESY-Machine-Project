@@ -293,7 +293,6 @@ void CommandProcessor::handleProcessSMI(const std::vector<std::string>& args) {
         std::cout << "Name: " << process->name << std::endl;
         std::cout << "State: " << process->getStateString() << std::endl;
         std::cout << "Core Assignment: " << (process->coreAssignment >= 0 ? std::to_string(process->coreAssignment) : "None") << std::endl;
-        std::cout << "Memory Size: " << process->memorySize << " KB" << std::endl;
         std::cout << "Instructions: " << process->executedInstructions << "/" << process->totalInstructions << std::endl;
         std::cout << "Created: " << process->creationTimestamp << std::endl;
         
