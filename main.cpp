@@ -661,6 +661,32 @@ private:
         }
     }
     
+    void testModeProcessCreator() {
+        while (!shouldStop.load()) {
+            int activeCores = 0;
+            int queueSize = 0;
+            
+            {
+                std::lock_guard<std::mutex> lock(processMutex);
+                for (const auto& process : runningProcesses) {
+                    if (process != nullptr) activeCores++;
+                }
+                queueSize = readyQueue.size();
+            }
+            
+            int totalWorkload = activeCores + queueSize;
+            int desiredWorkload = config->numCpu * 2;
+            
+            int processesToCreate = std::max(1, desiredWorkload - totalWorkload);
+            
+            for (int i = 0; i < processesToCreate; ++i) {
+                createProcess();
+            }
+            
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        }
+    }
+    
     void handleProcessCompletion(std::shared_ptr<Process> process) {
         process->state = ProcessState::TERMINATED;
         process->updateMetrics();
@@ -702,6 +728,26 @@ public:
         coreWorkers.emplace_back(&Scheduler::processCreatorThread, this);
         
         std::cout << "Scheduler started with " << config->numCpu << " CPU cores." << std::endl;
+        return true;
+    }
+    
+    bool startTestMode() {
+        if (isRunning.load()) {
+            std::cout << "Scheduler is already running." << std::endl;
+            return false;
+        }
+        
+        shouldStop.store(false);
+        isRunning.store(true);
+        
+        coreWorkers.clear();
+        for (int i = 0; i < config->numCpu; ++i) {
+            coreWorkers.emplace_back(&Scheduler::coreWorkerThread, this, i);
+        }
+        
+        coreWorkers.emplace_back(&Scheduler::testModeProcessCreator, this);
+        
+        std::cout << "Scheduler test mode started with " << config->numCpu << " CPU cores." << std::endl;
         return true;
     }
     
@@ -941,6 +987,19 @@ public:
             }
         };
         
+        commands["scheduler-test"] = [this](const std::vector<std::string>& args) {
+            if (!initialized) {
+                std::cout << "Please initialize the system first." << std::endl;
+                return;
+            }
+            
+            if (scheduler->startTestMode()) {
+                Utils::setTextColor(32); 
+                std::cout << "Scheduler test mode started successfully!" << std::endl;
+                Utils::resetTextColor();
+            }
+        };
+        
         commands["scheduler-stop"] = [this](const std::vector<std::string>& args) {
             if (!initialized) {
                 std::cout << "Please initialize the system first." << std::endl;
@@ -1108,6 +1167,7 @@ public:
                 << "|       exit        - Exit the screen session.                                    |\n"
                 << "|  screen -ls       - Show current CPU/process usage.                             |\n"
                 << "|  scheduler-start  - Start dummy process generation.                             |\n"
+                << "|  scheduler-test   - Start scheduler in test mode for performance testing.      |\n"
                 << "|  scheduler-stop   - Stop process generation and free memory.                    |\n"
                 << "|  report-util      - Save CPU utilization report to file.                        |\n"
                 << "|  clear            - Clear the screen.                                           |\n"

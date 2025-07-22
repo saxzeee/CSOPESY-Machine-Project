@@ -1,11 +1,11 @@
 CSOPESY OS Emulator Report
-Generated: 07/22/2025 01:20:26.150 PM
+Generated: 07/22/2025 02:39:45.800 PM
 
 ---------------------------------------------
 CPU Status:
-Total Cores      : 4
+Total Cores      : 16
 Cores Used       : 0
-Cores Available  : 4
+Cores Available  : 16
 CPU Utilization  : 0%
 
 ---------------------------------------------
@@ -13,9 +13,58 @@ Running processes:
 No processes currently running.
 
 Finished processes:
-process1      (07/22/2025 01:20:21.454 PM)  Finished  1056 / 1056
-process2      (07/22/2025 01:20:22.544 PM)  Finished  1523 / 1523
-process3      (07/22/2025 01:20:23.547 PM)  Finished  1621 / 1621
-process4      (07/22/2025 01:20:24.468 PM)  Finished  1145 / 1145
-process5      (07/22/2025 01:20:25.464 PM)  Finished  1023 / 1023
+process1      (07/22/2025 02:39:04.291 PM)  Finished  5000 / 5000
+process2      (07/22/2025 02:39:05.567 PM)  Finished  5000 / 5000
+process3      (07/22/2025 02:39:07.991 PM)  Finished  5000 / 5000
+process4      (07/22/2025 02:39:08.048 PM)  Finished  5000 / 5000
+process6      (07/22/2025 02:39:08.455 PM)  Finished  5000 / 5000
+process5      (07/22/2025 02:39:08.457 PM)  Finished  5000 / 5000
+process7      (07/22/2025 02:39:09.156 PM)  Finished  5000 / 5000
+process9      (07/22/2025 02:39:09.534 PM)  Finished  5000 / 5000
+process10     (07/22/2025 02:39:09.819 PM)  Finished  5000 / 5000
+process8      (07/22/2025 02:39:09.836 PM)  Finished  5000 / 5000
+process11     (07/22/2025 02:39:09.906 PM)  Finished  5000 / 5000
+process13     (07/22/2025 02:39:10.325 PM)  Finished  5000 / 5000
+process18     (07/22/2025 02:39:10.426 PM)  Finished  5000 / 5000
+process12     (07/22/2025 02:39:10.483 PM)  Finished  5000 / 5000
+process17     (07/22/2025 02:39:10.626 PM)  Finished  5000 / 5000
+process14     (07/22/2025 02:39:10.850 PM)  Finished  5000 / 5000
+process19     (07/22/2025 02:39:10.902 PM)  Finished  5000 / 5000
+process15     (07/22/2025 02:39:10.966 PM)  Finished  5000 / 5000
+process16     (07/22/2025 02:39:10.996 PM)  Finished  5000 / 5000
+process20     (07/22/2025 02:39:11.145 PM)  Finished  5000 / 5000
+process21     (07/22/2025 02:39:11.145 PM)  Finished  5000 / 5000
+process23     (07/22/2025 02:39:14.288 PM)  Finished  5000 / 5000
+process22     (07/22/2025 02:39:14.451 PM)  Finished  5000 / 5000
+process25     (07/22/2025 02:39:16.994 PM)  Finished  5000 / 5000
+process24     (07/22/2025 02:39:17.011 PM)  Finished  5000 / 5000
+process26     (07/22/2025 02:39:18.950 PM)  Finished  5000 / 5000
+process27     (07/22/2025 02:39:18.990 PM)  Finished  5000 / 5000
+process29     (07/22/2025 02:39:19.958 PM)  Finished  5000 / 5000
+process28     (07/22/2025 02:39:20.022 PM)  Finished  5000 / 5000
+process30     (07/22/2025 02:39:21.976 PM)  Finished  5000 / 5000
+process31     (07/22/2025 02:39:22.066 PM)  Finished  5000 / 5000
+process33     (07/22/2025 02:39:22.186 PM)  Finished  5000 / 5000
+process32     (07/22/2025 02:39:22.614 PM)  Finished  5000 / 5000
+process34     (07/22/2025 02:39:23.418 PM)  Finished  5000 / 5000
+process35     (07/22/2025 02:39:24.118 PM)  Finished  5000 / 5000
+process36     (07/22/2025 02:39:25.363 PM)  Finished  5000 / 5000
+process37     (07/22/2025 02:39:25.934 PM)  Finished  5000 / 5000
+process38     (07/22/2025 02:39:27.727 PM)  Finished  5000 / 5000
+process39     (07/22/2025 02:39:29.445 PM)  Finished  5000 / 5000
+process40     (07/22/2025 02:39:31.019 PM)  Finished  5000 / 5000
+process41     (07/22/2025 02:39:32.804 PM)  Finished  5000 / 5000
+process42     (07/22/2025 02:39:33.814 PM)  Finished  5000 / 5000
+process43     (07/22/2025 02:39:35.234 PM)  Finished  5000 / 5000
+process44     (07/22/2025 02:39:35.461 PM)  Finished  5000 / 5000
+process45     (07/22/2025 02:39:35.942 PM)  Finished  5000 / 5000
+process46     (07/22/2025 02:39:36.168 PM)  Finished  5000 / 5000
+process47     (07/22/2025 02:39:36.750 PM)  Finished  5000 / 5000
+process48     (07/22/2025 02:39:37.180 PM)  Finished  5000 / 5000
+process49     (07/22/2025 02:39:37.718 PM)  Finished  5000 / 5000
+process50     (07/22/2025 02:39:38.265 PM)  Finished  5000 / 5000
+process51     (07/22/2025 02:39:38.584 PM)  Finished  5000 / 5000
+process52     (07/22/2025 02:39:39.864 PM)  Finished  5000 / 5000
+process53     (07/22/2025 02:39:41.298 PM)  Finished  5000 / 5000
+process54     (07/22/2025 02:39:42.238 PM)  Finished  5000 / 5000
 ---------------------------------------------
