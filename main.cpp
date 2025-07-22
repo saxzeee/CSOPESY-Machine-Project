@@ -575,7 +575,22 @@ private:
             }
             
             if (currentProcess) {
-                std::string logEntry = currentProcess->executeNextInstruction();
+                int instructionsPerChunk = 1; 
+                int effectiveDelay = config->delayPerExec; 
+                
+                if (config->delayPerExec <= 5) {
+                    instructionsPerChunk = 8; 
+                }
+                
+                int instructionsExecuted = 0;
+                while (instructionsExecuted < instructionsPerChunk && !currentProcess->isComplete()) {
+                    std::string logEntry = currentProcess->executeNextInstruction();
+                    instructionsExecuted++;
+                    
+                    if (currentProcess->isComplete()) {
+                        break;
+                    }
+                }
                 
                 if (currentProcess->isComplete()) {
                     handleProcessCompletion(currentProcess);
@@ -584,7 +599,7 @@ private:
                     runningProcesses[coreId] = nullptr;
                 }
                 else if (config->scheduler == "rr") {
-                    coreQuantumCounters[coreId]++;
+                    coreQuantumCounters[coreId] += instructionsExecuted;
                     
                     if (coreQuantumCounters[coreId] >= config->quantumCycles) {
                         coreQuantumCounters[coreId] = 0;
@@ -598,7 +613,11 @@ private:
                     }
                 }
                 
-                std::this_thread::sleep_for(std::chrono::milliseconds(config->delayPerExec));
+                if (effectiveDelay > 0) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(effectiveDelay));
+                } else {
+                    std::this_thread::yield();
+                }
             } else {
                 std::unique_lock<std::mutex> lock(processMutex);
                 processCV.wait_for(lock, std::chrono::milliseconds(50));
@@ -608,7 +627,35 @@ private:
     
     void processCreatorThread() {
         while (!shouldStop.load()) {
-            createProcess();
+            int activeCores = 0;
+            int queueSize = 0;
+            
+            {
+                std::lock_guard<std::mutex> lock(processMutex);
+                for (const auto& process : runningProcesses) {
+                    if (process != nullptr) activeCores++;
+                }
+                queueSize = readyQueue.size();
+            }
+            
+            int processesToCreate = 1; 
+            
+            if (config->delayPerExec <= 5) {
+                int totalWorkload = activeCores + queueSize;
+                int desiredWorkload = config->numCpu + 5; 
+                
+                if (totalWorkload < desiredWorkload) {
+                    processesToCreate = desiredWorkload - totalWorkload;
+                }
+                
+                if (config->delayPerExec == 0 && totalWorkload < config->numCpu * 2) {
+                    processesToCreate = std::max(processesToCreate, 2);
+                }
+            }
+            
+            for (int i = 0; i < processesToCreate; ++i) {
+                createProcess();
+            }
             
             std::this_thread::sleep_for(std::chrono::seconds(config->batchProcessFreq));
         }
@@ -686,8 +733,11 @@ public:
         
         auto process = std::make_shared<Process>(processName);
         
-        int instructionCount = Utils::generateRandomInt(
+        int baseInstructionCount = Utils::generateRandomInt(
             config->minInstructions, config->maxInstructions);
+        
+        int instructionCount = baseInstructionCount;
+        
         process->generateInstructions(instructionCount);
         
         process->state = ProcessState::READY;
