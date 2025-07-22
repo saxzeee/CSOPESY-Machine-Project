@@ -35,15 +35,13 @@ struct SystemConfig {
         
         std::string line;
         while (std::getline(file, line)) {
-            // Remove leading/trailing whitespace but keep internal spaces
             size_t start = line.find_first_not_of(" \t\r\n");
-            if (start == std::string::npos) continue; // empty line
+            if (start == std::string::npos) continue;
             size_t end = line.find_last_not_of(" \t\r\n");
             line = line.substr(start, end - start + 1);
             
             if (line.empty() || line[0] == '#') continue;
             
-            // Look for space or = as separator
             size_t pos = line.find(' ');
             if (pos == std::string::npos) {
                 pos = line.find('=');
@@ -53,14 +51,12 @@ struct SystemConfig {
             std::string key = line.substr(0, pos);
             std::string value = line.substr(pos + 1);
             
-            // Remove leading/trailing whitespace from value
             start = value.find_first_not_of(" \t");
             if (start != std::string::npos) {
                 end = value.find_last_not_of(" \t");
                 value = value.substr(start, end - start + 1);
             }
             
-            // Remove quotes from value if present
             if (value.length() >= 2 && value.front() == '"' && value.back() == '"') {
                 value = value.substr(1, value.length() - 2);
             }
@@ -310,9 +306,7 @@ public:
                     }
                     instruction += "], " + std::to_string(repeats) + ")";
                     
-                    currentNestingLevel--; 
-                    
-                    i += innerInstructions;
+                    currentNestingLevel--;
                 } else {
                     std::string var1 = varNames[varDist(gen)];
                     std::string var2 = varNames[varDist(gen)];
@@ -559,6 +553,8 @@ private:
     std::atomic<int> processCounter{1};
     std::chrono::high_resolution_clock::time_point systemStartTime;
     
+    std::vector<int> coreQuantumCounters;
+    
     void coreWorkerThread(int coreId) {
         while (!shouldStop.load()) {
             std::shared_ptr<Process> currentProcess = nullptr;
@@ -588,7 +584,6 @@ private:
                     runningProcesses[coreId] = nullptr;
                 }
                 else if (config->scheduler == "rr") {
-                    static std::map<int, int> coreQuantumCounters;
                     coreQuantumCounters[coreId]++;
                     
                     if (coreQuantumCounters[coreId] >= config->quantumCycles) {
@@ -628,7 +623,6 @@ private:
             std::lock_guard<std::mutex> lock(processMutex);
             terminatedProcesses.push_back(process);
         }
-        
     }
     
 public:
@@ -636,6 +630,7 @@ public:
         : config(std::move(cfg)) {
         
         runningProcesses.resize(config->numCpu, nullptr);
+        coreQuantumCounters.resize(config->numCpu, 0);
         systemStartTime = std::chrono::high_resolution_clock::now();
     }
     
@@ -733,7 +728,6 @@ public:
     void displayProcesses() const {
         std::lock_guard<std::mutex> lock(processMutex);
         
-        // Display running processes
         bool hasRunningProcesses = false;
         for (size_t i = 0; i < runningProcesses.size(); ++i) {
             if (runningProcesses[i]) {
