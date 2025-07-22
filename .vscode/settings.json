@@ -80,6 +80,11 @@
         "variant": "cpp",
         "cstdarg": "cpp",
         "codecvt": "cpp",
-        "filesystem": "cpp"
+        "filesystem": "cpp",
+        "csignal": "cpp",
+        "list": "cpp",
+        "queue": "cpp",
+        "set": "cpp",
+        "xhash": "cpp"
     }
 }

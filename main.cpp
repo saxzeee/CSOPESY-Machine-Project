@@ -330,7 +330,7 @@ public:
         
         std::string timestamp = Utils::getCurrentTimestamp();
         std::string result = processInstruction(instruction);
-        std::string logEntry = "(" + timestamp + ") " + instruction;
+        std::string logEntry = "(" + timestamp + ") Core:" + std::to_string(coreAssignment) + " " + instruction;
         
         if (!result.empty()) {
             logEntry += " -> " + result;
@@ -771,26 +771,56 @@ public:
             return;
         }
         
-        file << "CSOPESY Enhanced Process Scheduler Report" << std::endl;
+        file << "CSOPESY OS Emulator Report" << std::endl;
         file << "Generated: " << Utils::getCurrentTimestamp() << std::endl;
-        file << std::string(50, '=') << std::endl;
-        
-        file << "\nSystem Configuration:" << std::endl;
-        file << "CPU Cores: " << config->numCpu << std::endl;
-        file << "Scheduler Algorithm: " << config->scheduler << std::endl;
-        file << "Quantum Cycles: " << config->quantumCycles << std::endl;
+        file << std::endl;
         
         int busyCores = 0;
         for (const auto& process : runningProcesses) {
             if (process != nullptr) busyCores++;
         }
         
-        file << "\nCurrent System Status:" << std::endl;
-        file << "CPU Utilization: " << std::fixed << std::setprecision(1) 
-             << (static_cast<double>(busyCores) / config->numCpu) * 100.0 << "%" << std::endl;
-        file << "Active Processes: " << busyCores << std::endl;
-        file << "Ready Queue: " << readyQueue.size() << std::endl;
-        file << "Completed Processes: " << terminatedProcesses.size() << std::endl;
+        int totalCores = config->numCpu;
+        int coresAvailable = totalCores - busyCores;
+        double cpuUtilization = (static_cast<double>(busyCores) / totalCores) * 100.0;
+        
+        file << "---------------------------------------------" << std::endl;
+        file << "CPU Status:" << std::endl;
+        file << "Total Cores      : " << totalCores << std::endl;
+        file << "Cores Used       : " << busyCores << std::endl;
+        file << "Cores Available  : " << coresAvailable << std::endl;
+        file << "CPU Utilization  : " << static_cast<int>(cpuUtilization) << "%" << std::endl;
+        
+        file << "\n---------------------------------------------" << std::endl;
+        file << "Running processes:" << std::endl;
+        bool hasRunningProcesses = false;
+        for (size_t i = 0; i < runningProcesses.size(); ++i) {
+            if (runningProcesses[i]) {
+                auto& p = runningProcesses[i];
+                file << std::left << std::setw(12) << p->name << "  ";
+                file << "(Started: " << p->creationTimestamp << ")  ";
+                file << "Core: " << i << "  ";
+                file << p->executedInstructions << " / " << p->totalInstructions << std::endl;
+                hasRunningProcesses = true;
+            }
+        }
+        
+        if (!hasRunningProcesses) {
+            file << "No processes currently running." << std::endl;
+        }
+        
+        file << "\nFinished processes:" << std::endl;
+        if (terminatedProcesses.empty()) {
+            file << "No processes have finished yet." << std::endl;
+        } else {
+            for (const auto& p : terminatedProcesses) {
+                file << std::left << std::setw(12) << p->name << "  ";
+                file << "(" << p->completionTimestamp << ")  ";
+                file << "Finished  ";
+                file << p->executedInstructions << " / " << p->totalInstructions << std::endl;
+            }
+        }
+        file << "---------------------------------------------" << std::endl;
         
         file.close();
         std::cout << "Report generated: " << filename << std::endl;
@@ -913,8 +943,11 @@ public:
                             displayHeader();
                             break;
                         } else if (input == "process-smi") {
+                            std::cout << "\nProcess name: " << process->name << std::endl;
+                            std::cout << "ID: " << process->pid << std::endl;
+                            std::cout << "Logs:" << std::endl;
+                            
                             if (!process->instructionHistory.empty()) {
-                                std::cout << "\n--- Process Logs ---" << std::endl;
                                 for (const auto& log : process->instructionHistory) {
                                     std::cout << log << std::endl;
                                 }
@@ -922,8 +955,12 @@ public:
                                 std::cout << "No logs found for this process." << std::endl;
                             }
                             
+                            std::cout << std::endl;
                             if (process->state == ProcessState::TERMINATED) {
                                 std::cout << "Finished!" << std::endl;
+                            } else {
+                                std::cout << "Current instruction line: " << process->executedInstructions << std::endl;
+                                std::cout << "Lines of code: " << process->totalInstructions << std::endl;
                             }
                         } else {
                             std::cout << "Available commands: process-smi, exit" << std::endl;
@@ -968,8 +1005,11 @@ public:
                         displayHeader();
                         break;
                     } else if (input == "process-smi") {
+                        std::cout << "\nProcess name: " << process->name << std::endl;
+                        std::cout << "ID: " << process->pid << std::endl;
+                        std::cout << "Logs:" << std::endl;
+                        
                         if (!process->instructionHistory.empty()) {
-                            std::cout << "\n--- Process Logs ---" << std::endl;
                             for (const auto& log : process->instructionHistory) {
                                 std::cout << log << std::endl;
                             }
@@ -977,8 +1017,12 @@ public:
                             std::cout << "No logs found for this process." << std::endl;
                         }
                         
+                        std::cout << std::endl;
                         if (process->state == ProcessState::TERMINATED) {
                             std::cout << "Finished!" << std::endl;
+                        } else {
+                            std::cout << "Current instruction line: " << process->executedInstructions << std::endl;
+                            std::cout << "Lines of code: " << process->totalInstructions << std::endl;
                         }
                     } else {
                         std::cout << "Available commands: process-smi, exit" << std::endl;

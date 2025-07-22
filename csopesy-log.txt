@@ -1,0 +1,21 @@
+CSOPESY OS Emulator Report
+Generated: 07/22/2025 01:20:26.150 PM
+
+---------------------------------------------
+CPU Status:
+Total Cores      : 4
+Cores Used       : 0
+Cores Available  : 4
+CPU Utilization  : 0%
+
+---------------------------------------------
+Running processes:
+No processes currently running.
+
+Finished processes:
+process1      (07/22/2025 01:20:21.454 PM)  Finished  1056 / 1056
+process2      (07/22/2025 01:20:22.544 PM)  Finished  1523 / 1523
+process3      (07/22/2025 01:20:23.547 PM)  Finished  1621 / 1621
+process4      (07/22/2025 01:20:24.468 PM)  Finished  1145 / 1145
+process5      (07/22/2025 01:20:25.464 PM)  Finished  1023 / 1023
+---------------------------------------------
