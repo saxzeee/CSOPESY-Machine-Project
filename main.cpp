@@ -165,6 +165,7 @@ public:
     int waitingTime = 0;
     int turnaroundTime = 0;
     int responseTime = -1;
+    int sleepRemaining = 0;
     
     Process(const std::string& processName) 
         : name(processName), state(ProcessState::NEW), priority(0), 
@@ -475,6 +476,8 @@ private:
         std::string ticksStr = instruction.substr(start, end - start);
         
         int ticks = std::stoi(ticksStr);
+        sleepRemaining = ticks;
+        state = ProcessState::WAITING;
         return "Sleeping for " + std::to_string(ticks) + " CPU ticks";
     }
     
@@ -576,6 +579,23 @@ private:
             }
             
             if (currentProcess) {
+                if (currentProcess->sleepRemaining > 0) {
+                    currentProcess->sleepRemaining--;
+                    
+                    if (currentProcess->sleepRemaining == 0) {
+                        currentProcess->state = ProcessState::READY;
+                        
+                        std::lock_guard<std::mutex> lock(processMutex);
+                        currentProcess->coreAssignment = -1;
+                        readyQueue.push(currentProcess);
+                        runningProcesses[coreId] = nullptr;
+                        processCV.notify_one();
+                    } else {
+                        std::this_thread::sleep_for(std::chrono::milliseconds(config->delayPerExec));
+                    }
+                    continue;
+                }
+                
                 int instructionsPerChunk = 1; 
                 int effectiveDelay = config->delayPerExec; 
                 
@@ -591,6 +611,10 @@ private:
                     if (currentProcess->isComplete()) {
                         break;
                     }
+                    
+                    if (currentProcess->state == ProcessState::WAITING && currentProcess->sleepRemaining > 0) {
+                        break;
+                    }
                 }
                 
                 if (currentProcess->isComplete()) {
@@ -598,6 +622,8 @@ private:
                     
                     std::lock_guard<std::mutex> lock(processMutex);
                     runningProcesses[coreId] = nullptr;
+                }
+                else if (currentProcess->state == ProcessState::WAITING && currentProcess->sleepRemaining > 0) {
                 }
                 else if (config->scheduler == "rr") {
                     coreQuantumCounters[coreId] += instructionsExecuted;
@@ -1198,7 +1224,7 @@ public:
                 << "|       exit        - Exit the screen session.                                    |\n"
                 << "|  screen -ls       - Show current CPU/process usage.                             |\n"
                 << "|  scheduler-start  - Enable automatic dummy process generation.                  |\n"
-                << "|  scheduler-test   - Start scheduler in test mode for performance testing.      |\n"
+                << "|  scheduler-test   - Start scheduler in test mode for performance testing.       |\n"
                 << "|  scheduler-stop   - Disable automatic dummy process generation.                 |\n"
                 << "|  report-util      - Save CPU utilization report to file.                        |\n"
                 << "|  clear            - Clear the screen.                                           |\n"
@@ -1229,7 +1255,6 @@ public:
                     std::cout << "Stopping scheduler before exit..." << std::endl;
                     scheduler->stop();
                 }
-                std::cout << "Goodbye!" << std::endl;
                 break;
             }
             
