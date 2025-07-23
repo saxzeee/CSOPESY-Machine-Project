@@ -110,8 +110,8 @@ void Scheduler::coreWorkerThread(int coreId) {
 
 void Scheduler::processCreatorThread() {
     while (!shouldStop.load()) {
-        if (createProcess()) {
-            std::cout << "New process created automatically." << std::endl;
+        if (dummyProcessGenerationEnabled.load() && createProcess()) {
+            std::cout << "New dummy process created automatically." << std::endl;
         }
         
         std::this_thread::sleep_for(std::chrono::milliseconds(config->batchProcessFreq * 1000));
@@ -119,6 +119,8 @@ void Scheduler::processCreatorThread() {
 }
 
 bool Scheduler::createProcess(const std::string& name) {
+    ensureSchedulerStarted();
+    
     std::string processName = name;
     if (processName.empty()) {
         processName = "process" + std::to_string(processCounter.fetch_add(1));
@@ -313,4 +315,21 @@ std::shared_ptr<Process> Scheduler::findProcess(const std::string& name) const {
         }
     }
     return nullptr;
+}
+
+void Scheduler::ensureSchedulerStarted() {
+    if (!isRunning.load()) {
+        std::cout << "Auto-starting scheduler for process execution..." << std::endl;
+        start();
+    }
+}
+
+void Scheduler::enableDummyProcessGeneration() {
+    dummyProcessGenerationEnabled.store(true);
+    std::cout << "Dummy process generation enabled." << std::endl;
+}
+
+void Scheduler::disableDummyProcessGeneration() {
+    dummyProcessGenerationEnabled.store(false);
+    std::cout << "Dummy process generation disabled." << std::endl;
 }

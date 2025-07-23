@@ -84,6 +84,7 @@ private:
     std::vector<std::thread> coreWorkers;
     std::atomic<bool> isRunning{false};
     std::atomic<bool> shouldStop{false};
+    std::atomic<bool> dummyProcessGenerationEnabled{false};
     mutable std::mutex processMutex;
     std::condition_variable processCV;
     
@@ -95,6 +96,7 @@ private:
     std::shared_ptr<Process> selectNextProcess();
     void scheduleProcess(std::shared_ptr<Process> process, int coreId);
     void handleProcessCompletion(std::shared_ptr<Process> process);
+    void ensureSchedulerStarted();
     
 public:
     Scheduler(std::unique_ptr<SystemConfig> config);
@@ -103,11 +105,14 @@ public:
     bool start();
     void stop();
     bool createProcess(const std::string& name = "");
+    void enableDummyProcessGeneration();
+    void disableDummyProcessGeneration();
     void displayProcesses() const;
     void displaySystemStatus() const;
     void generateReport(const std::string& filename) const;
     std::shared_ptr<Process> findProcess(const std::string& name) const;
     bool isSystemRunning() const { return isRunning.load(); }
+    bool isDummyGenerationEnabled() const { return dummyProcessGenerationEnabled.load(); }
 };
 
 class CommandProcessor {

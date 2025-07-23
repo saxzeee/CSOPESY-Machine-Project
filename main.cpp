@@ -547,6 +547,7 @@ private:
     std::vector<std::thread> coreWorkers;
     std::atomic<bool> isRunning{false};
     std::atomic<bool> shouldStop{false};
+    std::atomic<bool> dummyProcessGenerationEnabled{false};
     mutable std::mutex processMutex;
     std::condition_variable processCV;
     
@@ -627,34 +628,36 @@ private:
     
     void processCreatorThread() {
         while (!shouldStop.load()) {
-            int activeCores = 0;
-            int queueSize = 0;
-            
-            {
-                std::lock_guard<std::mutex> lock(processMutex);
-                for (const auto& process : runningProcesses) {
-                    if (process != nullptr) activeCores++;
-                }
-                queueSize = readyQueue.size();
-            }
-            
-            int processesToCreate = 1; 
-            
-            if (config->delayPerExec <= 5) {
-                int totalWorkload = activeCores + queueSize;
-                int desiredWorkload = config->numCpu + 5; 
+            if (dummyProcessGenerationEnabled.load()) {
+                int activeCores = 0;
+                int queueSize = 0;
                 
-                if (totalWorkload < desiredWorkload) {
-                    processesToCreate = desiredWorkload - totalWorkload;
+                {
+                    std::lock_guard<std::mutex> lock(processMutex);
+                    for (const auto& process : runningProcesses) {
+                        if (process != nullptr) activeCores++;
+                    }
+                    queueSize = readyQueue.size();
                 }
                 
-                if (config->delayPerExec == 0 && totalWorkload < config->numCpu * 2) {
-                    processesToCreate = std::max(processesToCreate, 2);
+                int processesToCreate = 1; 
+                
+                if (config->delayPerExec <= 5) {
+                    int totalWorkload = activeCores + queueSize;
+                    int desiredWorkload = config->numCpu + 5; 
+                    
+                    if (totalWorkload < desiredWorkload) {
+                        processesToCreate = desiredWorkload - totalWorkload;
+                    }
+                    
+                    if (config->delayPerExec == 0 && totalWorkload < config->numCpu * 2) {
+                        processesToCreate = std::max(processesToCreate, 2);
+                    }
                 }
-            }
-            
-            for (int i = 0; i < processesToCreate; ++i) {
-                createProcess();
+                
+                for (int i = 0; i < processesToCreate; ++i) {
+                    createProcess();
+                }
             }
             
             std::this_thread::sleep_for(std::chrono::seconds(config->batchProcessFreq));
@@ -772,6 +775,8 @@ public:
     }
     
     bool createProcess(const std::string& name = "") {
+        ensureSchedulerStarted();
+        
         std::string processName = name;
         if (processName.empty()) {
             processName = "process" + std::to_string(processCounter.fetch_add(1));
@@ -934,6 +939,23 @@ public:
     }
     
     bool isSystemRunning() const { return isRunning.load(); }
+    
+    void ensureSchedulerStarted() {
+        if (!isRunning.load()) {
+            start();
+        }
+    }
+    
+    void enableDummyProcessGeneration() {
+        dummyProcessGenerationEnabled.store(true);
+    }
+    
+    void disableDummyProcessGeneration() {
+        dummyProcessGenerationEnabled.store(false);
+        std::cout << "Dummy process generation disabled." << std::endl;
+    }
+    
+    bool isDummyGenerationEnabled() const { return dummyProcessGenerationEnabled.load(); }
 };
 
 class CommandProcessor {
@@ -980,11 +1002,15 @@ public:
                 return;
             }
             
-            if (scheduler->start()) {
-                Utils::setTextColor(32); 
-                std::cout << "Scheduler started successfully!" << std::endl;
-                Utils::resetTextColor();
+            if (!scheduler->isSystemRunning()) {
+                if (scheduler->start()) {
+                    Utils::setTextColor(32); 
+                    std::cout << "Scheduler auto-started for dummy process generation." << std::endl;
+                    Utils::resetTextColor();
+                }
             }
+            
+            scheduler->enableDummyProcessGeneration();
         };
         
         commands["scheduler-test"] = [this](const std::vector<std::string>& args) {
@@ -1006,7 +1032,12 @@ public:
                 return;
             }
             
-            scheduler->stop();
+            scheduler->disableDummyProcessGeneration();
+            
+            Utils::setTextColor(32); 
+            std::cout << "Dummy process generation stopped successfully!" << std::endl;
+            std::cout << "Existing processes will continue to execute." << std::endl;
+            Utils::resetTextColor();
         };
         
         commands["screen"] = [this](const std::vector<std::string>& args) {
@@ -1166,9 +1197,9 @@ public:
                 << "|       process-smi - Show process info inside screen.                            |\n"
                 << "|       exit        - Exit the screen session.                                    |\n"
                 << "|  screen -ls       - Show current CPU/process usage.                             |\n"
-                << "|  scheduler-start  - Start dummy process generation.                             |\n"
+                << "|  scheduler-start  - Enable automatic dummy process generation.                  |\n"
                 << "|  scheduler-test   - Start scheduler in test mode for performance testing.      |\n"
-                << "|  scheduler-stop   - Stop process generation and free memory.                    |\n"
+                << "|  scheduler-stop   - Disable automatic dummy process generation.                 |\n"
                 << "|  report-util      - Save CPU utilization report to file.                        |\n"
                 << "|  clear            - Clear the screen.                                           |\n"
                 << "|  exit             - Exit the emulator.                                          |\n"

@@ -233,15 +233,20 @@ void CommandProcessor::handleSchedulerStart(const std::vector<std::string>& args
         return;
     }
     
-    if (scheduler->start()) {
-        Utils::setTextColor(32); 
-        std::cout << "Scheduler started successfully!" << std::endl;
-        Utils::resetTextColor();
-    } else {
-        Utils::setTextColor(33); 
-        std::cout << "Scheduler is already running." << std::endl;
-        Utils::resetTextColor();
+    if (!scheduler->isSystemRunning()) {
+        if (scheduler->start()) {
+            Utils::setTextColor(32); 
+            std::cout << "Scheduler auto-started for dummy process generation." << std::endl;
+            Utils::resetTextColor();
+        }
     }
+    
+    scheduler->enableDummyProcessGeneration();
+    
+    Utils::setTextColor(32); 
+    std::cout << "Dummy process generation started successfully!" << std::endl;
+    std::cout << "The scheduler will now create processes automatically at intervals." << std::endl;
+    Utils::resetTextColor();
 }
 
 void CommandProcessor::handleSchedulerStop(const std::vector<std::string>& args) {
@@ -250,9 +255,11 @@ void CommandProcessor::handleSchedulerStop(const std::vector<std::string>& args)
         return;
     }
     
-    scheduler->stop();
+    scheduler->disableDummyProcessGeneration();
+    
     Utils::setTextColor(32); 
-    std::cout << "Scheduler stopped successfully!" << std::endl;
+    std::cout << "Dummy process generation stopped successfully!" << std::endl;
+    std::cout << "Existing processes will continue to execute." << std::endl;
     Utils::resetTextColor();
 }
 
@@ -316,8 +323,8 @@ void CommandProcessor::handleHelp(const std::vector<std::string>& args) {
     std::cout << std::setw(25) << "screen -s <name>" << "Create/attach to a process screen session" << std::endl;
     std::cout << std::setw(25) << "screen -r <name>" << "Resume an existing process screen session" << std::endl;
     std::cout << std::setw(25) << "screen -ls" << "List all processes and system status" << std::endl;
-    std::cout << std::setw(25) << "scheduler-start" << "Start the process scheduler" << std::endl;
-    std::cout << std::setw(25) << "scheduler-stop" << "Stop the process scheduler" << std::endl;
+    std::cout << std::setw(25) << "scheduler-start" << "Enable automatic dummy process generation" << std::endl;
+    std::cout << std::setw(25) << "scheduler-stop" << "Disable automatic dummy process generation" << std::endl;
     std::cout << std::setw(25) << "report-util" << "Generate system report to file" << std::endl;
     std::cout << std::setw(25) << "process-smi" << "Show detailed process information" << std::endl;
     std::cout << std::setw(25) << "clear" << "Clear the screen" << std::endl;
