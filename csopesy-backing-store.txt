@@ -1,0 +1,9 @@
+CSOPESY Backing Store - Memory Pages
+====================================
+
+Process: p001 Page: 1 -> Frame: 0 (Initial Load)
+Process: p001 Page: 0 -> Frame: 1 (Initial Load)
+Process: p001 - All pages deallocated
+Process: p002 Page: 0 -> Frame: 0 (Initial Load)
+Process: p002 Page: 1 -> Frame: 1 (Initial Load)
+Process: p002 - All pages deallocated
