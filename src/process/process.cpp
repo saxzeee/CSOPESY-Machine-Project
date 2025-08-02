@@ -9,8 +9,7 @@
 #include <iostream>
 #include <iomanip>
 
-Process::Process(const std::    } else if (instruction.find("READ ") == 0 || instruction.find("read ") == 0 || instruction.find("READ(") == 0 || instruction.find("read(") == 0 || instruction.find("READ\t") == 0 || instruction.find("read\t") == 0) {
-        return processRead(instruction);ring& processName) 
+Process::Process(const std::string& processName) 
     : name(processName), state(ProcessState::NEW), priority(0), 
       coreAssignment(-1),
       executedInstructions(0), totalInstructions(0) {
@@ -223,31 +222,28 @@ std::string Process::executeNextInstruction() {
 }
 
 std::string Process::processInstruction(const std::string& instruction) {
-    std::cout << "DEBUG: Processing instruction: '" << instruction << "'" << std::endl;
+    // Convert to uppercase for consistent matching
+    std::string upperInst = instruction;
+    std::transform(upperInst.begin(), upperInst.end(), upperInst.begin(), ::toupper);
     
-    if (instruction.find("DECLARE(") == 0) {
+    if (upperInst.find("DECLARE(") == 0) {
         return processDeclare(instruction);
-    } else if (instruction.find("ADD(") == 0) {
+    } else if (upperInst.find("ADD(") == 0) {
         return processAdd(instruction);
-    } else if (instruction.find("SUBTRACT(") == 0) {
+    } else if (upperInst.find("SUBTRACT(") == 0) {
         return processSubtract(instruction);
-    } else if (instruction.find("PRINT(") == 0) {
+    } else if (upperInst.find("PRINT(") == 0) {
         return processPrint(instruction);
-    } else if (instruction.find("SLEEP(") == 0) {
+    } else if (upperInst.find("SLEEP(") == 0) {
         return processSleep(instruction);
-    } else if (instruction.find("FOR(") == 0) {
+    } else if (upperInst.find("FOR(") == 0) {
         return processFor(instruction);
-    } else if (instruction.find("READ ") == 0 || instruction.find("READ(") == 0 || instruction.find("READ\t") == 0) {
+    } else if (upperInst.find("READ ") == 0 || upperInst.find("READ\t") == 0) {
         return processRead(instruction);
-    } else if (instruction.find("WRITE ") == 0 || instruction.find("write ") == 0 || instruction.find("write(") == 0 || instruction.find("write\t") == 0) {
-        return processWrite(instruction);
-    } else if (instruction.find("READ") == 0) {
-        return processRead(instruction);
-    } else if (instruction.find("WRITE") == 0 || instruction.find("write") == 0) {
+    } else if (upperInst.find("WRITE ") == 0 || upperInst.find("WRITE\t") == 0) {
         return processWrite(instruction);
     }
     
-    std::cout << "DEBUG: Unrecognized instruction: '" << instruction << "'" << std::endl;
     return "Unknown instruction: " + instruction;
 }
 
@@ -469,11 +465,7 @@ std::string Process::processRead(const std::string& instruction) {
     try {
         uint32_t address = std::stoul(hexAddr, nullptr, 16);
         
-        std::cout << "DEBUG READ: address=0x" << std::hex << address << std::dec 
-                  << " (" << address << "), allocatedMemory=" << allocatedMemory << std::endl;
-        
         if (address >= allocatedMemory) {
-            std::cout << "DEBUG: Memory violation detected!" << std::endl;
             handleMemoryViolation(address);
             return "Memory access violation at " + hexAddr;
         }
@@ -505,11 +497,7 @@ std::string Process::processWrite(const std::string& instruction) {
             value = static_cast<uint16_t>(std::stoul(valueStr));
         }
         
-        std::cout << "DEBUG WRITE: address=0x" << std::hex << address << std::dec 
-                  << " (" << address << "), allocatedMemory=" << allocatedMemory << std::endl;
-        
         if (address >= allocatedMemory) {
-            std::cout << "DEBUG: Memory violation detected!" << std::endl;
             handleMemoryViolation(address);
             return "Memory access violation at " + hexAddr;
         }

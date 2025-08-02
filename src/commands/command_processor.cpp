@@ -404,17 +404,22 @@ std::vector<std::string> CommandProcessor::parseInstructions(const std::string& 
     std::string instruction;
     
     while (std::getline(ss, instruction, ';')) {
+        // Trim whitespace
         instruction.erase(0, instruction.find_first_not_of(" \t"));
         instruction.erase(instruction.find_last_not_of(" \t") + 1);
+        
+        // Remove quotes if they exist at the beginning and end
+        if (instruction.length() >= 2 && instruction.front() == '"' && instruction.back() == '"') {
+            instruction = instruction.substr(1, instruction.length() - 2);
+        } else if (instruction.length() >= 1 && instruction.front() == '"') {
+            instruction = instruction.substr(1);
+        } else if (instruction.length() >= 1 && instruction.back() == '"') {
+            instruction = instruction.substr(0, instruction.length() - 1);
+        }
         
         if (!instruction.empty()) {
             instructions.push_back(instruction);
         }
-    }
-    
-    std::cout << "DEBUG: Parsed " << instructions.size() << " instructions from: " << instructionString << std::endl;
-    for (size_t i = 0; i < instructions.size(); ++i) {
-        std::cout << "  [" << (i+1) << "] " << instructions[i] << std::endl;
     }
     
     return instructions;
