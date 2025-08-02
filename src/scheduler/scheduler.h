@@ -3,6 +3,7 @@
 
 #include "../core/config.h"
 #include "../process/process.h"
+#include "../memory/memory_manager.h"
 #include <memory>
 #include <vector>
 #include <queue>
@@ -15,6 +16,7 @@
 class Scheduler {
 private:
     std::unique_ptr<SystemConfig> config;
+    std::unique_ptr<MemoryManager> memoryManager;
     
     std::vector<std::shared_ptr<Process>> allProcesses;
     std::queue<std::shared_ptr<Process>> readyQueue;
@@ -46,6 +48,8 @@ public:
     bool startTestMode();
     void stop();
     bool createProcess(const std::string& name = "");
+    bool createProcess(const std::string& name, size_t memorySize);
+    bool createProcess(const std::string& name, size_t memorySize, const std::vector<std::string>& instructions);
     void displaySystemStatus() const;
     void displayProcesses() const;
     void generateReport(const std::string& filename) const;
@@ -55,6 +59,9 @@ public:
     void enableDummyProcessGeneration();
     void disableDummyProcessGeneration();
     bool isDummyGenerationEnabled() const;
+    
+    MemoryManager* getMemoryManager() const { return memoryManager.get(); }
+    const SystemConfig* getConfig() const { return config.get(); }
 };
 
 #endif

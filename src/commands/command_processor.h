@@ -15,6 +15,8 @@ private:
     bool initialized = false;
     
     std::vector<std::string> parseCommand(const std::string& input);
+    std::vector<std::string> parseInstructions(const std::string& instructionString);
+    bool isValidMemorySize(size_t size);
     
 public:
     CommandProcessor();

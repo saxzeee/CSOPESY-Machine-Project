@@ -24,6 +24,24 @@ CommandProcessor::CommandProcessor() {
         }
     };
     
+    commands["process-smi"] = [this](const std::vector<std::string>& args) {
+        if (!initialized) {
+            std::cout << "Please initialize the system first." << std::endl;
+            return;
+        }
+        
+        scheduler->getMemoryManager()->generateMemoryReport();
+    };
+    
+    commands["vmstat"] = [this](const std::vector<std::string>& args) {
+        if (!initialized) {
+            std::cout << "Please initialize the system first." << std::endl;
+            return;
+        }
+        
+        scheduler->getMemoryManager()->generateVmstatReport();
+    };
+    
     commands["scheduler-start"] = [this](const std::vector<std::string>& args) {
         if (!initialized) {
             std::cout << "Please initialize the system first." << std::endl;
@@ -77,6 +95,111 @@ CommandProcessor::CommandProcessor() {
         if (args.size() >= 2 && args[1] == "-ls") {
             scheduler->displaySystemStatus();
             scheduler->displayProcesses();
+        } else if (args.size() >= 4 && args[1] == "-s") {
+            std::string processName = args[2];
+            size_t memorySize;
+            
+            try {
+                memorySize = std::stoull(args[3]);
+                if (!isValidMemorySize(memorySize)) {
+                    std::cout << "Invalid memory allocation" << std::endl;
+                    return;
+                }
+            } catch (const std::exception&) {
+                std::cout << "Invalid memory allocation" << std::endl;
+                return;
+            }
+            
+            auto process = scheduler->findProcess(processName);
+            if (!process) {
+                if (!scheduler->createProcess(processName, memorySize)) {
+                    return;
+                }
+                process = scheduler->findProcess(processName);
+            }
+            
+            if (process) {
+                Utils::clearScreen();
+                Utils::setTextColor(36); 
+                std::cout << "Process name: " << process->name << std::endl;
+                std::cout << "Instruction: Line " << process->executedInstructions << " / " << process->totalInstructions << std::endl;
+                std::cout << "Created at: " << process->creationTimestamp << std::endl;
+                std::cout << "Memory: " << process->allocatedMemory << " bytes" << std::endl;
+                Utils::resetTextColor();
+                
+                if (!process->instructionHistory.empty()) {
+                    std::cout << "\n--- Process Logs ---" << std::endl;
+                    int start = std::max(0, static_cast<int>(process->instructionHistory.size()) - 10);
+                    for (int i = start; i < process->instructionHistory.size(); ++i) {
+                        std::cout << process->instructionHistory[i] << std::endl;
+                    }
+                }
+                
+                std::string input;
+                while (true) {
+                    std::cout << "\n>> ";
+                    std::getline(std::cin, input);
+                    
+                    if (input == "exit") {
+                        displayHeader();
+                        break;
+                    } else if (input == "process-smi") {
+                        std::cout << "\nProcess name: " << process->name << std::endl;
+                        std::cout << "ID: " << process->pid << std::endl;
+                        std::cout << "Memory: " << process->allocatedMemory << " bytes" << std::endl;
+                        std::cout << "Logs:" << std::endl;
+                        
+                        if (!process->instructionHistory.empty()) {
+                            for (const auto& log : process->instructionHistory) {
+                                std::cout << log << std::endl;
+                            }
+                        } else {
+                            std::cout << "No logs found for this process." << std::endl;
+                        }
+                        
+                        std::cout << std::endl;
+                        if (process->state == ProcessState::TERMINATED) {
+                            std::cout << "Finished!" << std::endl;
+                        } else {
+                            std::cout << "Current instruction line: " << process->executedInstructions << std::endl;
+                            std::cout << "Lines of code: " << process->totalInstructions << std::endl;
+                        }
+                    } else {
+                        std::cout << "Available commands: process-smi, exit" << std::endl;
+                    }
+                }
+            }
+        } else if (args.size() >= 5 && args[1] == "-c") {
+            std::string processName = args[2];
+            size_t memorySize;
+            
+            try {
+                memorySize = std::stoull(args[3]);
+                if (!isValidMemorySize(memorySize)) {
+                    std::cout << "Invalid memory allocation" << std::endl;
+                    return;
+                }
+            } catch (const std::exception&) {
+                std::cout << "Invalid memory allocation" << std::endl;
+                return;
+            }
+            
+            std::string instructionString = args[4];
+            if (instructionString.length() >= 2 && instructionString.front() == '"' && instructionString.back() == '"') {
+                instructionString = instructionString.substr(1, instructionString.length() - 2);
+            }
+            
+            auto instructions = parseInstructions(instructionString);
+            if (instructions.empty()) {
+                std::cout << "Invalid command" << std::endl;
+                return;
+            }
+            
+            if (!scheduler->createProcess(processName, memorySize, instructions)) {
+                return;
+            }
+            
+            std::cout << "Process " << processName << " created successfully with " << memorySize << " bytes of memory." << std::endl;
         } else if (args.size() >= 3 && args[1] == "-s") {
             std::string processName = args[2];
             
@@ -145,7 +268,11 @@ CommandProcessor::CommandProcessor() {
             }
             
             if (process->state == ProcessState::TERMINATED) {
-                std::cout << "Process " << processName << " has already finished." << std::endl;
+                if (process->hasMemoryViolation()) {
+                    std::cout << process->getViolationInfo() << std::endl;
+                } else {
+                    std::cout << "Process " << processName << " has already finished." << std::endl;
+                }
                 return;
             }
             
@@ -198,9 +325,10 @@ CommandProcessor::CommandProcessor() {
             }
         } else {
             std::cout << "Usage:" << std::endl;
-            std::cout << "  screen -ls                   List all processes" << std::endl;
-            std::cout << "  screen -s <process_name>     Create new process screen session" << std::endl;
-            std::cout << "  screen -r <process_name>     Resume existing process screen session" << std::endl;
+            std::cout << "  screen -ls                                        List all processes" << std::endl;
+            std::cout << "  screen -s <process_name> <memory_size>            Create new process with memory" << std::endl;
+            std::cout << "  screen -c <process_name> <memory_size> \"<cmds>\"   Create process with custom instructions" << std::endl;
+            std::cout << "  screen -r <process_name>                         Resume existing process screen session" << std::endl;
         }
     };
     
@@ -219,18 +347,21 @@ CommandProcessor::CommandProcessor() {
             << "+---------------------------------------------------------------------------------+\n"
             << "|                           CSOPESY OS Emulator Commands                          |\n"
             << "+---------------------------------------------------------------------------------+\n"
-            << "|  initialize       - Initialize the processor configuration with \"config.txt\".   |\n"
-            << "|  screen -s <n> - Attach or create a screen session for a process.               |\n"
-            << "|  screen -r <n> - Resume an existing screen session if still running.            |\n"
-            << "|       process-smi - Show process info inside screen.                            |\n"
-            << "|       exit        - Exit the screen session.                                    |\n"
-            << "|  screen -ls       - Show current CPU/process usage.                             |\n"
-            << "|  scheduler-start  - Enable automatic dummy process generation.                  |\n"
-            << "|  scheduler-test   - Start scheduler in test mode for performance testing.       |\n"
-            << "|  scheduler-stop   - Disable automatic dummy process generation.                 |\n"
-            << "|  report-util      - Save CPU utilization report to file.                        |\n"
-            << "|  clear            - Clear the screen.                                           |\n"
-            << "|  exit             - Exit the emulator.                                          |\n"
+            << "|  initialize               - Initialize the processor configuration.             |\n"
+            << "|  process-smi              - Show memory and process overview.                   |\n"
+            << "|  vmstat                   - Show detailed memory statistics.                    |\n"
+            << "|  screen -s <name> <mem>   - Create process with memory allocation.              |\n"
+            << "|  screen -c <name> <mem> \"<cmds>\" - Create process with custom instructions.    |\n"
+            << "|  screen -r <name>         - Resume existing process screen session.             |\n"
+            << "|       process-smi         - Show process info inside screen.                    |\n"
+            << "|       exit                - Exit the screen session.                            |\n"
+            << "|  screen -ls               - Show current CPU/process usage.                     |\n"
+            << "|  scheduler-start          - Enable automatic dummy process generation.          |\n"
+            << "|  scheduler-test           - Start scheduler in test mode.                       |\n"
+            << "|  scheduler-stop           - Disable automatic dummy process generation.         |\n"
+            << "|  report-util              - Save CPU utilization report to file.               |\n"
+            << "|  clear                    - Clear the screen.                                   |\n"
+            << "|  exit                     - Exit the emulator.                                  |\n"
             << "+---------------------------------------------------------------------------------+\n";
     };
     
@@ -241,14 +372,66 @@ CommandProcessor::CommandProcessor() {
 
 std::vector<std::string> CommandProcessor::parseCommand(const std::string& input) {
     std::vector<std::string> tokens;
-    std::istringstream iss(input);
-    std::string token;
+    std::string current_token;
+    bool in_quotes = false;
     
-    while (iss >> token) {
-        tokens.push_back(token);
+    for (size_t i = 0; i < input.length(); ++i) {
+        char c = input[i];
+        
+        if (c == '"') {
+            in_quotes = !in_quotes;
+            current_token += c;
+        } else if (c == ' ' && !in_quotes) {
+            if (!current_token.empty()) {
+                tokens.push_back(current_token);
+                current_token.clear();
+            }
+        } else {
+            current_token += c;
+        }
+    }
+    
+    if (!current_token.empty()) {
+        tokens.push_back(current_token);
     }
     
     return tokens;
+}
+
+std::vector<std::string> CommandProcessor::parseInstructions(const std::string& instructionString) {
+    std::vector<std::string> instructions;
+    std::stringstream ss(instructionString);
+    std::string instruction;
+    
+    while (std::getline(ss, instruction, ';')) {
+        instruction.erase(0, instruction.find_first_not_of(" \t"));
+        instruction.erase(instruction.find_last_not_of(" \t") + 1);
+        
+        if (!instruction.empty()) {
+            instructions.push_back(instruction);
+        }
+    }
+    
+    std::cout << "DEBUG: Parsed " << instructions.size() << " instructions from: " << instructionString << std::endl;
+    for (size_t i = 0; i < instructions.size(); ++i) {
+        std::cout << "  [" << (i+1) << "] " << instructions[i] << std::endl;
+    }
+    
+    return instructions;
+}
+
+bool CommandProcessor::isValidMemorySize(size_t size) {
+    if (!scheduler) return false;
+    
+    auto config = scheduler->getConfig();
+    if (!config) return false;
+    
+    if (size < config->minMemoryPerProcess || size > config->maxMemoryPerProcess) {
+        return false;
+    }
+    
+    if (size < 64 || size > 65536) return false;
+    return (size & (size - 1)) == 0;
 }
 
 void CommandProcessor::run() {

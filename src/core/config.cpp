@@ -75,6 +75,10 @@ bool SystemConfig::loadFromFile(const std::string& filename) {
             else if (key == "min-ins") minInstructions = std::stoi(value);
             else if (key == "max-ins") maxInstructions = std::stoi(value);
             else if (key == "delay-per-exec") delayPerExec = std::stoi(value);
+            else if (key == "max-overall-mem") maxOverallMemory = std::stoull(value);
+            else if (key == "mem-per-frame") memoryPerFrame = std::stoull(value);
+            else if (key == "min-mem-per-proc") minMemoryPerProcess = std::stoull(value);
+            else if (key == "max-mem-per-proc") maxMemoryPerProcess = std::stoull(value);
         } catch (const std::exception& e) {
             std::cerr << "Error parsing config line: " << line << std::endl;
         }
@@ -92,5 +96,9 @@ void SystemConfig::display() const {
     std::cout << "Min Instructions      : " << minInstructions << std::endl;
     std::cout << "Max Instructions      : " << maxInstructions << std::endl;
     std::cout << "Delay per Execution   : " << delayPerExec << std::endl;
+    std::cout << "Max Overall Memory    : " << maxOverallMemory << " bytes" << std::endl;
+    std::cout << "Memory per Frame      : " << memoryPerFrame << " bytes" << std::endl;
+    std::cout << "Min Memory per Process: " << minMemoryPerProcess << " bytes" << std::endl;
+    std::cout << "Max Memory per Process: " << maxMemoryPerProcess << " bytes" << std::endl;
     std::cout << "----------------------------------" << std::endl;
 }

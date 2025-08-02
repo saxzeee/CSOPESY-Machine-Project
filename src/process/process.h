@@ -37,12 +37,26 @@ public:
     int responseTime = -1;
     int sleepRemaining = 0;
     
+    size_t allocatedMemory = 0;
+    uint32_t baseAddress = 0;
+    bool memoryViolationOccurred = false;
+    std::string violationTimestamp;
+    uint32_t violationAddress = 0;
+    
     Process(const std::string& processName);
+    Process(const std::string& processName, size_t memorySize);
+    Process(const std::string& processName, size_t memorySize, const std::vector<std::string>& customInstructions);
+    
     void generateInstructions(int count);
+    void setCustomInstructions(const std::vector<std::string>& instructions);
     std::string executeNextInstruction();
     bool isComplete() const;
     void updateMetrics();
     std::string getStateString() const;
+    void setMemoryAllocation(size_t memory);
+    void handleMemoryViolation(uint32_t address);
+    bool hasMemoryViolation() const;
+    std::string getViolationInfo() const;
     ~Process();
 
 private:
@@ -55,6 +69,8 @@ private:
     std::string processPrint(const std::string& instruction);
     std::string processSleep(const std::string& instruction);
     std::string processFor(const std::string& instruction);
+    std::string processRead(const std::string& instruction);
+    std::string processWrite(const std::string& instruction);
     uint16_t getVariableOrValue(const std::string& token);
 };
 

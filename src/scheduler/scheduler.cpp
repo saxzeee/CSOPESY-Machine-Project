@@ -14,6 +14,13 @@ Scheduler::Scheduler(std::unique_ptr<SystemConfig> cfg)
     runningProcesses.resize(config->numCpu, nullptr);
     coreQuantumCounters.resize(config->numCpu, 0);
     systemStartTime = std::chrono::high_resolution_clock::now();
+    
+    memoryManager = std::make_unique<MemoryManager>(
+        config->maxOverallMemory, 
+        config->memoryPerFrame,
+        config->minMemoryPerProcess,
+        config->maxMemoryPerProcess
+    );
 }
 
 Scheduler::~Scheduler() {
@@ -275,6 +282,58 @@ bool Scheduler::createProcess(const std::string& name) {
     
     processCV.notify_one();
     
+    return true;
+}
+
+bool Scheduler::createProcess(const std::string& name, size_t memorySize) {
+    ensureSchedulerStarted();
+    
+    if (!memoryManager->allocateMemory(name, memorySize)) {
+        std::cout << "Invalid memory allocation" << std::endl;
+        return false;
+    }
+    
+    auto process = std::make_shared<Process>(name, memorySize);
+    
+    int baseInstructionCount = Utils::generateRandomInt(
+        config->minInstructions, config->maxInstructions);
+    
+    process->generateInstructions(baseInstructionCount);
+    process->state = ProcessState::READY;
+    
+    {
+        std::lock_guard<std::mutex> lock(processMutex);
+        allProcesses.push_back(process);
+        readyQueue.push(process);
+    }
+    
+    processCV.notify_one();
+    return true;
+}
+
+bool Scheduler::createProcess(const std::string& name, size_t memorySize, const std::vector<std::string>& instructions) {
+    ensureSchedulerStarted();
+    
+    if (instructions.size() < 1 || instructions.size() > 50) {
+        std::cout << "Invalid command" << std::endl;
+        return false;
+    }
+    
+    if (!memoryManager->allocateMemory(name, memorySize)) {
+        std::cout << "Invalid memory allocation" << std::endl;
+        return false;
+    }
+    
+    auto process = std::make_shared<Process>(name, memorySize, instructions);
+    process->state = ProcessState::READY;
+    
+    {
+        std::lock_guard<std::mutex> lock(processMutex);
+        allProcesses.push_back(process);
+        readyQueue.push(process);
+    }
+    
+    processCV.notify_one();
     return true;
 }
 
