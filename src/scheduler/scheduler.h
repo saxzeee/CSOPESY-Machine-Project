@@ -1,7 +1,7 @@
 #ifndef SCHEDULER_H
 #define SCHEDULER_H
 
-#include "../core/config.h"
+#include "../config/config.h"
 #include "../process/process.h"
 #include "../memory/memory_manager.h"
 #include <memory>

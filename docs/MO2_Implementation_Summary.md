@@ -7,8 +7,8 @@ Successfully implemented MO2 (Machine Organization 2) enhancements to the existi
 
 | Component | File | Changes Made | Purpose |
 |-----------|------|--------------|---------|
-| **Configuration** | `src/core/config.h` | Added memory parameters: `maxOverallMemory`, `memoryPerFrame`, `minMemoryPerProcess`, `maxMemoryPerProcess` | Support memory configuration |
-| **Configuration** | `src/core/config.cpp` | Added parsing for new memory parameters in config file | Load memory settings from config.txt |
+| **Configuration** | `src/config/config.h` | Added memory parameters: `maxOverallMemory`, `memoryPerFrame`, `minMemoryPerProcess`, `maxMemoryPerProcess` | Support memory configuration |
+| **Configuration** | `src/config/config.cpp` | Added parsing for new memory parameters in config file | Load memory settings from config.txt |
 | **Configuration** | `config.txt` | Added memory parameters: `max-overall-mem`, `mem-per-frame`, `min-mem-per-proc`, `max-mem-per-proc` | Configure system memory limits |
 | **Memory Manager** | `src/memory/memory_manager.h` | Complete rewrite: Added frame management, page tables, backing store, statistics tracking | Core memory management functionality |
 | **Memory Manager** | `src/memory/memory_manager.cpp` | Implemented demand paging, page fault handling, memory allocation/deallocation, backing store operations | Memory virtualization and paging |

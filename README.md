@@ -13,7 +13,7 @@ CSOPESY-Machine-Project/
 │   └── csopesy-backing-store.txt
 ├── src/                            # Source code
 │   ├── main.cpp                    # Entry point
-│   ├── core/                       # Core system components
+│   ├── config/                     # Configuration management
 │   │   ├── config.h
 │   │   └── config.cpp
 │   ├── process/                    # Process management
@@ -33,8 +33,7 @@ CSOPESY-Machine-Project/
 │   │   └── command_processor.cpp
 │   └── utils/                      # Utility functions
 │       ├── utils.h
-│       ├── utils.cpp
-│       └── constants.h
+│       └── utils.cpp
 └── build/                          # Compiled executables
     └── csopesy.exe
 ```
