@@ -29,7 +29,7 @@ MemoryManager::MemoryManager(size_t maxMemory, size_t frameSize, size_t minMemPe
 MemoryManager::~MemoryManager() {
 }
 
-bool MemoryManager::isValidMemorySize(size_t size) {
+bool MemoryManager::isValidMemorySize(size_t size) const {
     if (size < minMemoryPerProcess || size > maxMemoryPerProcess) return false;
     if (size < 64 || size > 65536) return false;
     
@@ -303,25 +303,27 @@ bool MemoryManager::setVariable(const std::string& processId, const std::string&
 }
 
 size_t MemoryManager::getUsedMemory() const {
-    size_t used = 0;
-    for (const auto& pair : processMemoryMap) {
-        used += pair.second.allocatedMemory;
+    size_t usedFrames = 0;
+    for (const auto& frame : frameTable) {
+        if (frame.occupied) {
+            usedFrames++;
+        }
     }
-    return used;
+    return usedFrames * memoryPerFrame;
 }
 
 void MemoryManager::generateMemoryReport() {
     std::lock_guard<std::mutex> lock(memoryMutex);
     
-    size_t usedMemory = getUsedMemory();
-    size_t freeMemory = maxOverallMemory - usedMemory;
+    size_t physicalMemoryUsed = getUsedMemory();
+    size_t freeMemory = maxOverallMemory - physicalMemoryUsed;
     double cpuUtil = totalCpuTicks > 0 ? (static_cast<double>(activeCpuTicks) / totalCpuTicks) * 100.0 : 0.0;
     
     std::cout << "==========================================" << std::endl;
     std::cout << "| CSOPESY Process and Memory Monitor     |" << std::endl;
     std::cout << "==========================================" << std::endl;
     std::cout << "CPU-Util: " << std::fixed << std::setprecision(1) << cpuUtil << "%" << std::endl;
-    std::cout << "Memory Usage: " << usedMemory << " / " << maxOverallMemory << " bytes" << std::endl;
+    std::cout << "Memory: " << physicalMemoryUsed << " / " << maxOverallMemory << " bytes" << std::endl;
     std::cout << "==========================================" << std::endl;
     std::cout << "Running processes and memory usage:" << std::endl;
     std::cout << "------------------------------------------" << std::endl;
@@ -337,11 +339,11 @@ void MemoryManager::generateMemoryReport() {
 void MemoryManager::generateVmstatReport() {
     std::lock_guard<std::mutex> lock(memoryMutex);
     
-    size_t usedMemory = getUsedMemory();
-    size_t freeMemory = maxOverallMemory - usedMemory;
+    size_t physicalMemoryUsed = getUsedMemory();
+    size_t freeMemory = maxOverallMemory - physicalMemoryUsed;
     
     std::cout << "Total memory: " << maxOverallMemory << " bytes" << std::endl;
-    std::cout << "Used memory: " << usedMemory << " bytes" << std::endl;
+    std::cout << "Used memory: " << physicalMemoryUsed << " bytes" << std::endl;
     std::cout << "Free memory: " << freeMemory << " bytes" << std::endl;
     std::cout << "Idle CPU ticks: " << idleCpuTicks << std::endl;
     std::cout << "Active CPU ticks: " << activeCpuTicks << std::endl;
@@ -364,4 +366,13 @@ std::string MemoryManager::getViolationInfo(const std::string& processId) const 
     oss << "Process " << processId << " shut down due to memory access violation error that occurred at " 
         << it->second.violationTimestamp << ". 0x" << std::hex << it->second.violationAddress << " invalid.";
     return oss.str();
+}
+
+std::vector<size_t> MemoryManager::getAllocatedMemorySizes() const {
+    std::vector<size_t> sizes;
+
+    for (const auto& pair : processMemoryMap) {
+        sizes.push_back(pair.second.allocatedMemory);
+    }
+    return sizes;
 }

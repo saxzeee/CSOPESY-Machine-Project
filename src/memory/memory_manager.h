@@ -49,7 +49,6 @@ private:
     size_t pagesPagedIn = 0;
     size_t pagesPagedOut = 0;
     
-    bool isValidMemorySize(size_t size);
     uint32_t findVictimFrame();
     void evictPageToBackingStore(uint32_t frameNumber);
     bool loadPageFromBackingStore(uint32_t frameNumber, const std::string& processId, uint32_t virtualPageNumber);
@@ -75,11 +74,18 @@ public:
     size_t getUsedMemory() const;
     size_t getFreeMemory() const { return maxOverallMemory - getUsedMemory(); }
     
+    size_t getMinMemoryPerProcess() const { return minMemoryPerProcess; }
+    size_t getMaxMemoryPerProcess() const { return maxMemoryPerProcess; }
+    bool isValidMemorySize(size_t size) const;
+    
     void incrementCpuTicks() { totalCpuTicks++; activeCpuTicks++; }
     void incrementIdleTicks() { totalCpuTicks++; idleCpuTicks++; }
     
     bool hasMemoryViolation(const std::string& processId) const;
     std::string getViolationInfo(const std::string& processId) const;
+    
+    size_t getProcessCount() const { return processMemoryMap.size(); }
+    std::vector<size_t> getAllocatedMemorySizes() const;
 };
 
 #endif

@@ -7,6 +7,7 @@
 #include <thread>
 #include <chrono>
 #include <map>
+#include <random>
 
 Scheduler::Scheduler(std::unique_ptr<SystemConfig> cfg) 
     : config(std::move(cfg)) {
@@ -249,6 +250,10 @@ void Scheduler::handleProcessCompletion(std::shared_ptr<Process> process) {
     process->updateMetrics();
     process->coreAssignment = -1;
     
+    if (memoryManager) {
+        memoryManager->deallocateMemory(process->pid);
+    }
+    
     {
         std::lock_guard<std::mutex> lock(processMutex);
         terminatedProcesses.push_back(process);
@@ -263,15 +268,47 @@ bool Scheduler::createProcess(const std::string& name) {
         processName = "process" + std::to_string(processCounter.fetch_add(1));
     }
     
-    auto process = std::make_shared<Process>(processName);
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    
+    std::vector<size_t> validMemorySizes;
+    size_t minMemory = memoryManager->getMinMemoryPerProcess();
+    size_t maxMemory = memoryManager->getMaxMemoryPerProcess();
+    
+    for (size_t size = minMemory; size <= maxMemory; size *= 2) {
+        if (memoryManager->isValidMemorySize(size)) {
+            validMemorySizes.push_back(size);
+        }
+    }
+    
+    if (validMemorySizes.empty()) {
+        validMemorySizes.push_back(minMemory);
+    }
+    
+    std::uniform_int_distribution<> sizeDist(0, validMemorySizes.size() - 1);
+    size_t memorySize = validMemorySizes[sizeDist(gen)];
+    
+    bool allocated = false;
+    if (!memoryManager->allocateMemory(processName, memorySize)) {
+        for (auto it = validMemorySizes.rbegin(); it != validMemorySizes.rend(); ++it) {
+            if (memoryManager->allocateMemory(processName, *it)) {
+                memorySize = *it;
+                allocated = true;
+                break;
+            }
+        }
+        
+        if (!allocated) {
+            return false;
+        }
+    }
+    
+    auto process = std::make_shared<Process>(processName, memorySize);
     
     int baseInstructionCount = Utils::generateRandomInt(
         config->minInstructions, config->maxInstructions);
     
-    int instructionCount = baseInstructionCount;
-    
-    process->generateInstructions(instructionCount);
-    
+    process->generateInstructions(baseInstructionCount);
     process->state = ProcessState::READY;
     
     {

@@ -1,0 +1,30 @@
+# CSOPESY Configuration for Demand Paging Testing
+# This configuration uses constrained memory settings to force page faults
+
+num-cpu 4
+scheduler "rr"
+quantum-cycles 5
+batch-process-freq 1
+min-ins 1000
+max-ins 2000
+delay-per-exec 0
+
+# Memory settings optimized for demand paging testing
+max-overall-mem 1024     # Very small total memory (1KB) to force page faults
+mem-per-frame 64         # 64-byte frames (creates 16 total frames)
+min-mem-per-proc 64      # Minimum process memory
+max-mem-per-proc 512     # Maximum process memory
+
+# With these settings:
+# - Total physical memory: 1024 bytes
+# - Frame size: 64 bytes  
+# - Total frames available: 16 frames
+# - Max processes before page faults: ~8-10 processes
+# - Guaranteed page faults when creating 5+ processes with 256+ byte allocations
+
+# This configuration ensures comprehensive testing of:
+# 1. On-demand page loading
+# 2. Page fault handling
+# 3. Page replacement algorithm (FIFO)
+# 4. Backing store operations
+# 5. Memory pressure scenarios

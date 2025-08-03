@@ -72,9 +72,11 @@ void Process::generateInstructions(int count) {
         {"DECLARE", 15},   
         {"ADD", 20},       
         {"SUBTRACT", 15},    
-        {"PRINT", 25},     
+        {"PRINT", 20},     
         {"SLEEP", 10},      
-        {"FOR", 15}         
+        {"FOR", 10},
+        {"READ", 15},     
+        {"WRITE", 15}      
     };
     
     std::vector<std::string> weightedInstructions;
@@ -137,6 +139,30 @@ void Process::generateInstructions(int count) {
         } else if (instructionType == "SLEEP") {
             int ticks = sleepDist(gen);
             instruction = "SLEEP(" + std::to_string(ticks) + ")";
+            
+        } else if (instructionType == "READ") {
+            // Generate READ instruction with valid memory address
+            std::uniform_int_distribution<> addrDist(0, std::max(64, static_cast<int>(allocatedMemory - 2)));
+            uint32_t address = addrDist(gen);
+            // Align to 2-byte boundary for proper memory access
+            address = (address / 2) * 2;
+            
+            std::ostringstream oss;
+            oss << "READ 0x" << std::hex << std::uppercase << address;
+            instruction = oss.str();
+            
+        } else if (instructionType == "WRITE") {
+            // Generate WRITE instruction with valid memory address and value
+            std::uniform_int_distribution<> addrDist(0, std::max(64, static_cast<int>(allocatedMemory - 2)));
+            uint32_t address = addrDist(gen);
+            // Align to 2-byte boundary for proper memory access
+            address = (address / 2) * 2;
+            
+            uint16_t value = static_cast<uint16_t>(valueDist(gen));
+            
+            std::ostringstream oss;
+            oss << "WRITE 0x" << std::hex << std::uppercase << address << " " << std::dec << value;
+            instruction = oss.str();
             
         } else if (instructionType == "FOR") {
             if (currentNestingLevel < 3) {
@@ -381,7 +407,8 @@ uint16_t Process::getVariableOrValue(const std::string& token) {
 }
 
 bool Process::isComplete() const {
-    return pendingInstructions.empty() && executedInstructions >= totalInstructions;
+    return (pendingInstructions.empty() && executedInstructions >= totalInstructions) || 
+           (state == ProcessState::TERMINATED);
 }
 
 void Process::updateMetrics() {
