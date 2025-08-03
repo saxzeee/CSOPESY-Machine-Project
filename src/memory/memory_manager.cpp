@@ -49,6 +49,15 @@ bool MemoryManager::allocateMemory(const std::string& processId, size_t required
     
     size_t pagesNeeded = (requiredMemory + memoryPerFrame - 1) / memoryPerFrame;
     
+    size_t totalVirtualMemoryAllocated = 0;
+    for (const auto& pair : processMemoryMap) {
+        totalVirtualMemoryAllocated += pair.second.allocatedMemory;
+    }
+    
+    if (totalVirtualMemoryAllocated + requiredMemory > maxOverallMemory) {
+        return false;
+    }
+    
     ProcessMemoryInfo memInfo;
     memInfo.processId = processId;
     memInfo.allocatedMemory = requiredMemory;

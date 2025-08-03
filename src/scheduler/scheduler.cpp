@@ -211,7 +211,9 @@ void Scheduler::processCreatorThread() {
             }
             
             for (int i = 0; i < processesToCreate; ++i) {
-                createProcess();
+                if (!createProcess()) {
+                    break;
+                }
             }
         }
         
@@ -238,7 +240,9 @@ void Scheduler::testModeProcessCreator() {
         int processesToCreate = std::max(1, desiredWorkload - totalWorkload);
         
         for (int i = 0; i < processesToCreate; ++i) {
-            createProcess();
+            if (!createProcess()) {
+                break;
+            }
         }
         
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
