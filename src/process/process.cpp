@@ -222,7 +222,6 @@ std::string Process::executeNextInstruction() {
 }
 
 std::string Process::processInstruction(const std::string& instruction) {
-    // Convert to uppercase for consistent matching
     std::string upperInst = instruction;
     std::transform(upperInst.begin(), upperInst.end(), upperInst.begin(), ::toupper);
     
@@ -457,7 +456,6 @@ std::string Process::processRead(const std::string& instruction) {
     std::istringstream iss(instruction);
     std::string command, hexAddr;
     
-    // Try to parse as "READ address" format  
     if (!(iss >> command >> hexAddr)) {
         return "Invalid READ instruction format";
     }
@@ -470,7 +468,6 @@ std::string Process::processRead(const std::string& instruction) {
             return "Memory access violation at " + hexAddr;
         }
         
-        // For now, just read a dummy value - in real implementation would read from memory
         int value = 0;
         
         return "READ " + hexAddr + " = " + std::to_string(value);

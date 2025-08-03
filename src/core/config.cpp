@@ -8,7 +8,6 @@
 bool SystemConfig::loadFromFile(const std::string& filename) {
     std::cout << "Attempting to load config from: " << filename << std::endl;
     
-    // Try multiple possible paths
     std::vector<std::string> paths = {
         filename,
         "./" + filename,
