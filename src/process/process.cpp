@@ -69,14 +69,14 @@ void Process::generateInstructions(int count) {
     std::uniform_int_distribution<> forRepeatsDist(2, 5);
     
     std::vector<std::pair<std::string, int>> instructionWeights = {
-        {"DECLARE", 15},   
-        {"ADD", 20},       
-        {"SUBTRACT", 15},    
-        {"PRINT", 20},     
-        {"SLEEP", 10},      
-        {"FOR", 10},
-        {"READ", 15},     
-        {"WRITE", 15}      
+        {"DECLARE", 10},   
+        {"ADD", 15},       
+        {"SUBTRACT", 10},    
+        {"PRINT", 15},     
+        {"SLEEP", 5},      
+        {"FOR", 5},
+        {"READ", 25},     
+        {"WRITE", 25}     
     };
     
     std::vector<std::string> weightedInstructions;
@@ -88,7 +88,13 @@ void Process::generateInstructions(int count) {
     std::uniform_int_distribution<> instDist(0, weightedInstructions.size() - 1);
     
     std::set<std::string> declaredVars;
-    int currentNestingLevel = 0; 
+    int currentNestingLevel = 0;
+    
+    if (allocatedMemory > 0) {
+        std::ostringstream oss;
+        oss << "WRITE 0x0 42";  
+        pendingInstructions.push(oss.str());
+    } 
     
     for (int i = 0; i < count; ++i) {
         std::string instructionType = weightedInstructions[instDist(gen)];

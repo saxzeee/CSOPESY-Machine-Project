@@ -58,10 +58,35 @@ bool MemoryManager::allocateMemory(const std::string& processId, size_t required
         return false;
     }
     
+    if (freeFrames.size() < pagesNeeded) {
+        return false; 
+    }
+    
     ProcessMemoryInfo memInfo;
     memInfo.processId = processId;
     memInfo.allocatedMemory = requiredMemory;
     memInfo.baseAddress = processMemoryMap.size() * 0x10000;
+    
+    for (size_t i = 0; i < pagesNeeded; ++i) {
+        if (freeFrames.empty()) {
+            for (auto& pagePair : memInfo.pageTable) {
+                uint32_t frameNumber = pagePair.second;
+                frameTable[frameNumber].occupied = false;
+                frameTable[frameNumber].processId.clear();
+                freeFrames.push(frameNumber);
+            }
+            return false;
+        }
+        
+        uint32_t frameNumber = freeFrames.front();
+        freeFrames.pop();
+        
+        frameTable[frameNumber].occupied = true;
+        frameTable[frameNumber].processId = processId;
+        frameTable[frameNumber].virtualPageNumber = i;
+        
+        memInfo.pageTable[i] = frameNumber;
+    }
     
     processMemoryMap[processId] = memInfo;
     

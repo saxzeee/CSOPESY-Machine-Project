@@ -78,6 +78,10 @@ public:
     size_t getMaxMemoryPerProcess() const { return maxMemoryPerProcess; }
     bool isValidMemorySize(size_t size) const;
     
+    double getCpuUtilization() const { 
+        return totalCpuTicks > 0 ? (static_cast<double>(activeCpuTicks) / totalCpuTicks) * 100.0 : 0.0; 
+    }
+    
     void incrementCpuTicks() { totalCpuTicks++; activeCpuTicks++; }
     void incrementIdleTicks() { totalCpuTicks++; idleCpuTicks++; }
     

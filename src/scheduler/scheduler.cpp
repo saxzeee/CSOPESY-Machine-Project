@@ -137,6 +137,10 @@ void Scheduler::coreWorkerThread(int coreId) {
                 std::string logEntry = currentProcess->executeNextInstruction();
                 instructionsExecuted++;
                 
+                if (memoryManager) {
+                    memoryManager->incrementCpuTicks();
+                }
+                
                 if (currentProcess->isComplete()) {
                     break;
                 }
@@ -175,6 +179,10 @@ void Scheduler::coreWorkerThread(int coreId) {
                 std::this_thread::yield();
             }
         } else {
+            if (memoryManager) {
+                memoryManager->incrementIdleTicks();
+            }
+            
             std::unique_lock<std::mutex> lock(processMutex);
             processCV.wait_for(lock, std::chrono::milliseconds(50));
         }
@@ -388,14 +396,19 @@ void Scheduler::displaySystemStatus() const {
     
     int totalCores = config->numCpu;
     int coresAvailable = totalCores - busyCores;
-    double cpuUtilization = (static_cast<double>(busyCores) / totalCores) * 100.0;
+    
+    double actualCpuUtilization = memoryManager ? memoryManager->getCpuUtilization() : 0.0;
+    
+    if (actualCpuUtilization == 0.0 && busyCores > 0) {
+        actualCpuUtilization = (static_cast<double>(busyCores) / totalCores) * 100.0;
+    }
     
     std::cout << "---------------------------------------------" << std::endl;
     std::cout << "CPU Status:" << std::endl;
     std::cout << "Total Cores      : " << totalCores << std::endl;
     std::cout << "Cores Used       : " << busyCores << std::endl;
     std::cout << "Cores Available  : " << coresAvailable << std::endl;
-    std::cout << "CPU Utilization  : " << static_cast<int>(cpuUtilization) << "%" << std::endl << std::endl;
+    std::cout << "CPU Utilization  : " << std::fixed << std::setprecision(1) << actualCpuUtilization << "%" << std::endl << std::endl;
     std::cout << "---------------------------------------------" << std::endl;
     std::cout << "Running processes:" << std::endl;
 }
@@ -457,14 +470,19 @@ void Scheduler::generateReport(const std::string& filename) const {
     
     int totalCores = config->numCpu;
     int coresAvailable = totalCores - busyCores;
-    double cpuUtilization = (static_cast<double>(busyCores) / totalCores) * 100.0;
+    
+    double actualCpuUtilization = memoryManager ? memoryManager->getCpuUtilization() : 0.0;
+    
+    if (actualCpuUtilization == 0.0 && busyCores > 0) {
+        actualCpuUtilization = (static_cast<double>(busyCores) / totalCores) * 100.0;
+    }
     
     file << "---------------------------------------------" << std::endl;
     file << "CPU Status:" << std::endl;
     file << "Total Cores      : " << totalCores << std::endl;
     file << "Cores Used       : " << busyCores << std::endl;
     file << "Cores Available  : " << coresAvailable << std::endl;
-    file << "CPU Utilization  : " << static_cast<int>(cpuUtilization) << "%" << std::endl;
+    file << "CPU Utilization  : " << std::fixed << std::setprecision(1) << actualCpuUtilization << "%" << std::endl;
     
     file << "\n---------------------------------------------" << std::endl;
     file << "Running processes:" << std::endl;
