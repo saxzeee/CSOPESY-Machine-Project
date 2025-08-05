@@ -309,7 +309,40 @@ std::string Process::processInstruction(const std::string& instruction) {
     } else if (upperInst.find("WRITE ") == 0 || upperInst.find("WRITE\t") == 0) {
         return processWrite(instruction);
     }
-    
+    // space instead of () in commands
+    else if (upperInst.find("DECLARE ") == 0) {
+        // Convert to parenthesis style for handler
+        std::string params = instruction.substr(8);
+        return processDeclare("DECLARE(" + params + ")");
+    } else if (upperInst.find("ADD ") == 0) {
+        std::string params = instruction.substr(4);
+        return processAdd("ADD(" + params + ")");
+    } else if (upperInst.find("SUBTRACT ") == 0) {
+        std::string params = instruction.substr(9);
+        return processSubtract("SUBTRACT(" + params + ")");
+    } else if (upperInst.find("PRINT ") == 0) {
+        std::string params = instruction.substr(6);
+        return processPrint("PRINT(" + params + ")");
+    } else if (upperInst.find("SLEEP ") == 0) {
+        std::string params = instruction.substr(6);
+        return processSleep("SLEEP(" + params + ")");
+    } else if (upperInst.find("FOR ") == 0) {
+        std::string params = instruction.substr(4);
+        return processFor("FOR(" + params + ")");
+    } else if (upperInst.find("READ ") == 0 || upperInst.find("READ\t") == 0) {
+        return processRead(instruction);
+    }
+    else if (upperInst.find("READ ") == 0 || upperInst.find("READ\t") == 0) {
+        return processRead(instruction);
+    } else if (upperInst.find("WRITE ") == 0 || upperInst.find("WRITE\t") == 0) {
+        return processWrite(instruction);
+    }
+    else if (upperInst.find("PRINT ") == 0) {
+        std::string params = instruction.substr(6);
+        return processPrint("PRINT(" + params + ")");
+    }
+
+    return "Unknown instruction: " + instruction;
     return "Unknown instruction: " + instruction;
 }
 
