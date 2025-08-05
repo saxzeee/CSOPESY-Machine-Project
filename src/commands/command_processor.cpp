@@ -30,7 +30,10 @@ CommandProcessor::CommandProcessor() {
             return;
         }
         
-        scheduler->getMemoryManager()->generateMemoryReport();
+        scheduler->getMemoryManager()->generateMemoryReport(
+            scheduler->getRunningProcesses(), 
+            scheduler->getConfig()->numCpu
+        );
     };
     
     commands["vmstat"] = [this](const std::vector<std::string>& args) {

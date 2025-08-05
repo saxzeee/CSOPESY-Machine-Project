@@ -7,6 +7,10 @@
 #include <string>
 #include <mutex>
 #include <fstream>
+#include <memory>
+
+// Forward declaration
+class Process;
 
 struct MemoryFrame {
     bool occupied = false;
@@ -68,6 +72,7 @@ public:
     bool setVariable(const std::string& processId, const std::string& varName, uint16_t value);
     
     void generateMemoryReport();
+    void generateMemoryReport(const std::vector<std::shared_ptr<class Process>>& runningProcesses, int numCpu);
     void generateVmstatReport();
     
     size_t getTotalMemory() const { return maxOverallMemory; }
