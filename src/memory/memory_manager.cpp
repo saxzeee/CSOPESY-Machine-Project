@@ -489,35 +489,43 @@ size_t MemoryManager::getUsedMemory() const {
     return usedFrames * memoryPerFrame;
 }
 
-void MemoryManager::generateMemoryReport() {
-    std::lock_guard<std::mutex> lock(memoryMutex);
-    
-    size_t physicalMemoryUsed = getUsedMemory();
-    size_t freeMemory = maxOverallMemory - physicalMemoryUsed;
-    double cpuUtil = totalCpuTicks > 0 ? (static_cast<double>(activeCpuTicks) / totalCpuTicks) * 100.0 : 0.0;
-    
-    std::cout << "==========================================" << std::endl;
-    std::cout << "| CSOPESY Process and Memory Monitor     |" << std::endl;
-    std::cout << "==========================================" << std::endl;
-    std::cout << "CPU-Util: " << std::fixed << std::setprecision(1) << cpuUtil << "%" << std::endl;
-    std::cout << "Memory: " << physicalMemoryUsed << " / " << maxOverallMemory << " bytes" << std::endl;
-    std::cout << "==========================================" << std::endl;
-    std::cout << "Running processes and memory usage:" << std::endl;
-    std::cout << "------------------------------------------" << std::endl;
-    
+size_t MemoryManager::getVirtualMemoryUsed() const {
+    size_t totalVirtualMemory = 0;
     for (const auto& pair : processMemoryMap) {
-        std::cout << std::left << std::setw(20) << pair.first 
-                  << std::right << std::setw(10) << pair.second.allocatedMemory << " bytes" << std::endl;
+        totalVirtualMemory += pair.second.allocatedMemory;
     }
-    
-    std::cout << "------------------------------------------" << std::endl;
+    return totalVirtualMemory;
 }
+
+// void MemoryManager::generateMemoryReport() {
+//     std::lock_guard<std::mutex> lock(memoryMutex);
+    
+//     size_t physicalMemoryUsed = getUsedMemory();
+//     size_t freeMemory = maxOverallMemory - physicalMemoryUsed;
+//     double cpuUtil = totalCpuTicks > 0 ? (static_cast<double>(activeCpuTicks) / totalCpuTicks) * 100.0 : 0.0;
+    
+//     std::cout << "==========================================" << std::endl;
+//     std::cout << "| CSOPESY Process and Memory Monitor     |" << std::endl;
+//     std::cout << "==========================================" << std::endl;
+//     std::cout << "CPU-Util: " << std::fixed << std::setprecision(1) << cpuUtil << "%" << std::endl;
+//     std::cout << "Memory: " << physicalMemoryUsed << " / " << maxOverallMemory << " bytes" << std::endl;
+//     std::cout << "==========================================" << std::endl;
+//     std::cout << "Running processes and memory usage:" << std::endl;
+//     std::cout << "------------------------------------------" << std::endl;
+    
+//     for (const auto& pair : processMemoryMap) {
+//         std::cout << std::left << std::setw(20) << pair.first 
+//                   << std::right << std::setw(10) << pair.second.allocatedMemory << " bytes" << std::endl;
+//     }
+    
+//     std::cout << "------------------------------------------" << std::endl;
+// }
 
 void MemoryManager::generateMemoryReport(const std::vector<std::shared_ptr<Process>>& runningProcesses, int numCpu) {
     std::lock_guard<std::mutex> lock(memoryMutex);
     
-    size_t physicalMemoryUsed = getUsedMemory();
-    size_t freeMemory = maxOverallMemory - physicalMemoryUsed;
+    size_t virtualMemoryUsed = getVirtualMemoryUsed();
+    size_t freeVirtualMemory = maxOverallMemory - virtualMemoryUsed;
     
     int busyCores = 0;
     for (const auto& process : runningProcesses) {
@@ -527,14 +535,14 @@ void MemoryManager::generateMemoryReport(const std::vector<std::shared_ptr<Proce
     int totalCores = numCpu;
     int coresAvailable = totalCores - busyCores;
     double cpuUtilization = (static_cast<double>(busyCores) / totalCores) * 100.0;
-    double memoryUtilization = (static_cast<double>(physicalMemoryUsed) / maxOverallMemory) * 100.0;
+    double memoryUtilization = (static_cast<double>(virtualMemoryUsed) / maxOverallMemory) * 100.0;
     
     std::cout << "==========================================" << std::endl;
     std::cout << "| CSOPESY Process and Memory Monitor     |" << std::endl;
     std::cout << "==========================================" << std::endl;
     std::cout << "CPU-Util: " << std::fixed << std::setprecision(1) << cpuUtilization << "%" << std::endl;
     std::cout << "Memory-Util: " << std::fixed << std::setprecision(1) << memoryUtilization << "%" << std::endl;
-    std::cout << "Memory: " << physicalMemoryUsed << " / " << maxOverallMemory << " bytes" << std::endl;
+    std::cout << "Memory: " << virtualMemoryUsed << " / " << maxOverallMemory << " bytes" << std::endl;
     std::cout << "==========================================" << std::endl;
     std::cout << "Running processes and memory usage:" << std::endl;
     std::cout << "------------------------------------------" << std::endl;
