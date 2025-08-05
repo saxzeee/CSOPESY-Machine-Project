@@ -148,7 +148,8 @@ void Scheduler::coreWorkerThread(int coreId) {
             while (instructionsExecuted < instructionsPerChunk && !currentProcess->isComplete()) {
                 std::string logEntry = currentProcess->executeNextInstruction();
                 instructionsExecuted++;
-                
+                /////////////////////////////////////////DELAY FOR TESTING/////////////////////////////////////////////////
+                std::this_thread::sleep_for(std::chrono::milliseconds(1000));
                 if (currentProcess->isComplete()) {
                     break;
                 }
