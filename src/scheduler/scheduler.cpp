@@ -136,11 +136,11 @@ void Scheduler::coreWorkerThread(int coreId) {
             while (instructionsExecuted < instructionsPerChunk && !currentProcess->isComplete()) {
                 std::string logEntry = currentProcess->executeNextInstruction();
                 instructionsExecuted++;
-                
+                // Set delay to 500 milliseconds after each instruction execution
+                std::this_thread::sleep_for(std::chrono::milliseconds(500));
                 if (currentProcess->isComplete()) {
                     break;
                 }
-                
                 if (currentProcess->state == ProcessState::WAITING && currentProcess->sleepRemaining > 0) {
                     break;
                 }
