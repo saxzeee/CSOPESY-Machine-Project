@@ -7,6 +7,7 @@
 #include <ctime>
 #include <sstream>
 #include <fstream>
+#include <filesystem>
 
 MemoryManager::MemoryManager(size_t maxMemory, size_t frameSize, size_t minMemPerProc, size_t maxMemPerProc) 
     : maxOverallMemory(maxMemory), memoryPerFrame(frameSize), 
@@ -47,16 +48,34 @@ bool MemoryManager::allocateMemory(const std::string& processId, size_t required
         return false;
     }
     
-    size_t pagesNeeded = (requiredMemory + memoryPerFrame - 1) / memoryPerFrame;
-    
     ProcessMemoryInfo memInfo;
     memInfo.processId = processId;
     memInfo.allocatedMemory = requiredMemory;
     memInfo.baseAddress = processMemoryMap.size() * 0x10000;
     
     processMemoryMap[processId] = memInfo;
+    initializeProcessPages(processId, requiredMemory);
     
     return true;
+}
+
+void MemoryManager::initializeProcessPages(const std::string& processId, size_t memorySize) {
+    size_t pagesNeeded = (memorySize + memoryPerFrame - 1) / memoryPerFrame;
+    
+    auto& processInfo = processMemoryMap[processId];
+    
+    for (uint32_t i = 0; i < pagesNeeded; ++i) {
+        PageTableEntry entry;
+        entry.valid = false;
+        entry.frameNumber = 0;
+        entry.referenced = false;
+        entry.modified = false;
+        
+        processInfo.pageTable[i] = entry;
+        processInfo.validPages.insert(i);
+        
+        createInitialBackingStoreEntry(processId, i);
+    }
 }
 
 void MemoryManager::deallocateMemory(const std::string& processId) {
@@ -66,12 +85,16 @@ void MemoryManager::deallocateMemory(const std::string& processId) {
     if (it == processMemoryMap.end()) return;
     
     for (auto& pagePair : it->second.pageTable) {
-        uint32_t frameNumber = pagePair.second;
-        if (frameNumber < totalFrames) {
-            frameTable[frameNumber].occupied = false;
-            frameTable[frameNumber].processId.clear();
-            freeFrames.push(frameNumber);
+        uint32_t pageNumber = pagePair.first;
+        PageTableEntry& entry = pagePair.second;
+        
+        if (entry.valid && entry.frameNumber < totalFrames) {
+            frameTable[entry.frameNumber].occupied = false;
+            frameTable[entry.frameNumber].processId.clear();
+            freeFrames.push(entry.frameNumber);
         }
+        
+        removeBackingStoreEntry(processId, pageNumber);
     }
     
     processMemoryMap.erase(it);
@@ -79,11 +102,19 @@ void MemoryManager::deallocateMemory(const std::string& processId) {
 
 bool MemoryManager::handlePageFault(const std::string& processId, uint32_t virtualAddress) {
     std::lock_guard<std::mutex> lock(memoryMutex);
-    
+    return handlePageFaultInternal(processId, virtualAddress);
+}
+
+bool MemoryManager::handlePageFaultInternal(const std::string& processId, uint32_t virtualAddress) {
     auto it = processMemoryMap.find(processId);
     if (it == processMemoryMap.end()) return false;
     
     uint32_t pageNumber = virtualAddress / memoryPerFrame;
+    
+    if (it->second.validPages.find(pageNumber) == it->second.validPages.end()) {
+        return false;
+    }
+    
     uint32_t frameNumber;
     
     if (freeFrames.empty()) {
@@ -101,42 +132,48 @@ bool MemoryManager::handlePageFault(const std::string& processId, uint32_t virtu
     frameTable[frameNumber].occupied = true;
     frameTable[frameNumber].processId = processId;
     frameTable[frameNumber].virtualPageNumber = pageNumber;
+    frameTable[frameNumber].lastAccessTime = currentTime;
     
-    it->second.pageTable[pageNumber] = frameNumber;
+    PageTableEntry& entry = it->second.pageTable[pageNumber];
+    entry.valid = true;
+    entry.frameNumber = frameNumber;
+    entry.referenced = true;
+    
     pagesPagedIn++;
+    pageFaults++;
     
     return true;
 }
 
 uint32_t MemoryManager::findVictimFrame() {
+    size_t oldestTime = currentTime;
+    uint32_t victimFrame = 0;
+    
     for (size_t i = 0; i < totalFrames; ++i) {
-        if (frameTable[i].occupied) {
-            return i;
+        if (frameTable[i].occupied && frameTable[i].lastAccessTime < oldestTime) {
+            oldestTime = frameTable[i].lastAccessTime;
+            victimFrame = i;
         }
     }
-    return 0;
+    
+    return victimFrame;
 }
 
 void MemoryManager::evictPageToBackingStore(uint32_t frameNumber) {
     if (frameNumber >= totalFrames || !frameTable[frameNumber].occupied) return;
     
-    std::ofstream backingStore(backingStorePath, std::ios::app);
-    if (backingStore.is_open()) {
-        backingStore << "EVICTED: Process=" << frameTable[frameNumber].processId 
-                   << " Page=" << frameTable[frameNumber].virtualPageNumber
-                   << " Frame=" << frameNumber << "\n";
-        
-        for (size_t i = 0; i < frameTable[frameNumber].data.size(); ++i) {
-            backingStore << std::hex << static_cast<int>(frameTable[frameNumber].data[i]) << " ";
-            if ((i + 1) % 16 == 0) backingStore << "\n";
-        }
-        backingStore << "\n";
-        backingStore.close();
-    }
+    std::string processId = frameTable[frameNumber].processId;
+    uint32_t pageNumber = frameTable[frameNumber].virtualPageNumber;
     
-    auto it = processMemoryMap.find(frameTable[frameNumber].processId);
+    writePageToBackingStore(processId, pageNumber, frameTable[frameNumber].data);
+    
+    auto it = processMemoryMap.find(processId);
     if (it != processMemoryMap.end()) {
-        it->second.pageTable.erase(frameTable[frameNumber].virtualPageNumber);
+        auto pageIt = it->second.pageTable.find(pageNumber);
+        if (pageIt != it->second.pageTable.end()) {
+            pageIt->second.valid = false;
+            pageIt->second.frameNumber = 0;
+        }
     }
     
     frameTable[frameNumber].occupied = false;
@@ -145,41 +182,136 @@ void MemoryManager::evictPageToBackingStore(uint32_t frameNumber) {
 }
 
 bool MemoryManager::loadPageFromBackingStore(uint32_t frameNumber, const std::string& processId, uint32_t virtualPageNumber) {
-    std::ifstream backingStore(backingStorePath);
-    if (!backingStore.is_open()) return false;
+    return readPageFromBackingStore(processId, virtualPageNumber, frameTable[frameNumber].data);
+}
+
+void MemoryManager::createInitialBackingStoreEntry(const std::string& processId, uint32_t pageNumber) {
+    std::vector<uint8_t> initialData(memoryPerFrame, 0);
+    writePageToBackingStore(processId, pageNumber, initialData);
+}
+
+void MemoryManager::writePageToBackingStore(const std::string& processId, uint32_t pageNumber, const std::vector<uint8_t>& data) {
+    std::lock_guard<std::mutex> lock(backingStoreMutex);
     
+    std::vector<std::string> lines;
+    std::ifstream inputFile(backingStorePath);
     std::string line;
     bool found = false;
-    std::vector<uint8_t> pageData;
+    std::string pageId = "PROCESS=" + processId + " PAGE=" + std::to_string(pageNumber);
     
-    while (std::getline(backingStore, line)) {
-        if (line.find("EVICTED: Process=" + processId + " Page=" + std::to_string(virtualPageNumber)) != std::string::npos) {
+    while (std::getline(inputFile, line)) {
+        if (line.find(pageId) != std::string::npos) {
             found = true;
-            continue;
-        }
-        
-        if (found && !line.empty() && line != "EVICTED") {
-            std::istringstream iss(line);
-            std::string hexByte;
-            while (iss >> hexByte) {
-                try {
-                    uint8_t byte = static_cast<uint8_t>(std::stoul(hexByte, nullptr, 16));
-                    pageData.push_back(byte);
-                } catch (const std::exception&) {
-                    break;
-                }
-            }
+            lines.push_back(pageId);
             
-            if (pageData.size() >= memoryPerFrame) break;
+            std::ostringstream dataStream;
+            for (size_t i = 0; i < data.size(); ++i) {
+                dataStream << std::hex << std::setfill('0') << std::setw(2) << static_cast<int>(data[i]);
+                if ((i + 1) % 16 == 0) dataStream << "\n";
+                else dataStream << " ";
+            }
+            if (data.size() % 16 != 0) dataStream << "\n";
+            dataStream << "END_PAGE\n";
+            
+            lines.push_back(dataStream.str());
+            
+            while (std::getline(inputFile, line) && line != "END_PAGE") {
+            }
+        } else {
+            lines.push_back(line);
+        }
+    }
+    inputFile.close();
+    
+    if (!found) {
+        lines.push_back(pageId);
+        
+        std::ostringstream dataStream;
+        for (size_t i = 0; i < data.size(); ++i) {
+            dataStream << std::hex << std::setfill('0') << std::setw(2) << static_cast<int>(data[i]);
+            if ((i + 1) % 16 == 0) dataStream << "\n";
+            else dataStream << " ";
+        }
+        if (data.size() % 16 != 0) dataStream << "\n";
+        dataStream << "END_PAGE";
+        
+        lines.push_back(dataStream.str());
+    }
+    
+    std::ofstream outputFile(backingStorePath);
+    for (const auto& outputLine : lines) {
+        outputFile << outputLine << "\n";
+    }
+    outputFile.close();
+}
+
+bool MemoryManager::readPageFromBackingStore(const std::string& processId, uint32_t pageNumber, std::vector<uint8_t>& data) {
+    std::lock_guard<std::mutex> lock(backingStoreMutex);
+    
+    std::ifstream inputFile(backingStorePath);
+    if (!inputFile.is_open()) return false;
+    
+    std::string line;
+    std::string pageId = "PROCESS=" + processId + " PAGE=" + std::to_string(pageNumber);
+    bool found = false;
+    
+    while (std::getline(inputFile, line)) {
+        if (line.find(pageId) != std::string::npos) {
+            found = true;
+            break;
         }
     }
     
-    if (found && pageData.size() >= memoryPerFrame) {
-        std::copy(pageData.begin(), pageData.begin() + memoryPerFrame, frameTable[frameNumber].data.begin());
-        return true;
+    if (!found) {
+        inputFile.close();
+        return false;
     }
     
-    return false;
+    data.clear();
+    data.resize(memoryPerFrame, 0);
+    size_t dataIndex = 0;
+    
+    while (std::getline(inputFile, line) && line != "END_PAGE" && dataIndex < memoryPerFrame) {
+        std::istringstream iss(line);
+        std::string hexByte;
+        
+        while (iss >> hexByte && dataIndex < memoryPerFrame) {
+            try {
+                uint8_t byte = static_cast<uint8_t>(std::stoul(hexByte, nullptr, 16));
+                data[dataIndex++] = byte;
+            } catch (const std::exception&) {
+                break;
+            }
+        }
+    }
+    
+    inputFile.close();
+    return dataIndex > 0;
+}
+
+void MemoryManager::removeBackingStoreEntry(const std::string& processId, uint32_t pageNumber) {
+    std::lock_guard<std::mutex> lock(backingStoreMutex);
+    
+    std::vector<std::string> lines;
+    std::ifstream inputFile(backingStorePath);
+    std::string line;
+    std::string pageId = "PROCESS=" + processId + " PAGE=" + std::to_string(pageNumber);
+    
+    while (std::getline(inputFile, line)) {
+        if (line.find(pageId) != std::string::npos) {
+            while (std::getline(inputFile, line) && line != "END_PAGE") {
+            }
+        } else {
+            lines.push_back(line);
+        }
+    }
+    inputFile.close();
+    
+    std::ofstream outputFile(backingStorePath);
+    for (const auto& outputLine : lines) {
+        outputFile << outputLine << "\n";
+    }
+    outputFile.close();
 }
 
 uint16_t MemoryManager::readMemory(const std::string& processId, uint32_t address) {
@@ -203,15 +335,18 @@ uint16_t MemoryManager::readMemory(const std::string& processId, uint32_t addres
     uint32_t offset = address % memoryPerFrame;
     
     auto pageIt = it->second.pageTable.find(pageNumber);
-    if (pageIt == it->second.pageTable.end()) {
-        if (!const_cast<MemoryManager*>(this)->handlePageFault(processId, address)) {
+    if (pageIt == it->second.pageTable.end() || !pageIt->second.valid) {
+        if (!const_cast<MemoryManager*>(this)->handlePageFaultInternal(processId, address)) {
             return 0;
         }
         pageIt = it->second.pageTable.find(pageNumber);
     }
     
-    uint32_t frameNumber = pageIt->second;
+    uint32_t frameNumber = pageIt->second.frameNumber;
     if (frameNumber >= totalFrames || offset + 1 >= memoryPerFrame) return 0;
+    
+    frameTable[frameNumber].lastAccessTime = currentTime;
+    pageIt->second.referenced = true;
     
     uint16_t value = frameTable[frameNumber].data[offset] | 
                     (static_cast<uint16_t>(frameTable[frameNumber].data[offset + 1]) << 8);
@@ -239,18 +374,58 @@ bool MemoryManager::writeMemory(const std::string& processId, uint32_t address, 
     uint32_t offset = address % memoryPerFrame;
     
     auto pageIt = it->second.pageTable.find(pageNumber);
-    if (pageIt == it->second.pageTable.end()) {
-        if (!handlePageFault(processId, address)) {
+    if (pageIt == it->second.pageTable.end() || !pageIt->second.valid) {
+        if (!handlePageFaultInternal(processId, address)) {
             return false;
         }
         pageIt = it->second.pageTable.find(pageNumber);
     }
     
-    uint32_t frameNumber = pageIt->second;
+    uint32_t frameNumber = pageIt->second.frameNumber;
     if (frameNumber >= totalFrames || offset + 1 >= memoryPerFrame) return false;
+    
+    frameTable[frameNumber].lastAccessTime = currentTime;
+    pageIt->second.referenced = true;
+    pageIt->second.modified = true;
     
     frameTable[frameNumber].data[offset] = value & 0xFF;
     frameTable[frameNumber].data[offset + 1] = (value >> 8) & 0xFF;
+    
+    return true;
+}
+
+bool MemoryManager::accessMemory(const std::string& processId, uint32_t address) {
+    std::lock_guard<std::mutex> lock(memoryMutex);
+    
+    auto it = processMemoryMap.find(processId);
+    if (it == processMemoryMap.end()) return false;
+    
+    if (address >= it->second.allocatedMemory) {
+        it->second.memoryViolationOccurred = true;
+        it->second.violationAddress = address;
+        auto now = std::time(nullptr);
+        auto tm = *std::localtime(&now);
+        std::ostringstream oss;
+        oss << std::put_time(&tm, "%H:%M:%S");
+        it->second.violationTimestamp = oss.str();
+        return false;
+    }
+    
+    uint32_t pageNumber = address / memoryPerFrame;
+    
+    auto pageIt = it->second.pageTable.find(pageNumber);
+    if (pageIt == it->second.pageTable.end() || !pageIt->second.valid) {
+        if (!handlePageFaultInternal(processId, address)) {
+            return false;
+        }
+        pageIt = it->second.pageTable.find(pageNumber);
+    }
+    
+    uint32_t frameNumber = pageIt->second.frameNumber;
+    if (frameNumber >= totalFrames) return false;
+    
+    frameTable[frameNumber].lastAccessTime = currentTime;
+    pageIt->second.referenced = true;
     
     return true;
 }
@@ -350,6 +525,7 @@ void MemoryManager::generateVmstatReport() {
     std::cout << "Total CPU ticks: " << totalCpuTicks << std::endl;
     std::cout << "Num paged in: " << pagesPagedIn << std::endl;
     std::cout << "Num paged out: " << pagesPagedOut << std::endl;
+    std::cout << "Page faults: " << pageFaults << std::endl;
 }
 
 bool MemoryManager::hasMemoryViolation(const std::string& processId) const {

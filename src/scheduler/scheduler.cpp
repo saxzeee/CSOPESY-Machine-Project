@@ -146,10 +146,11 @@ void Scheduler::coreWorkerThread(int coreId) {
             
             int instructionsExecuted = 0;
             while (instructionsExecuted < instructionsPerChunk && !currentProcess->isComplete()) {
-                std::string logEntry = currentProcess->executeNextInstruction();
+                std::string logEntry = currentProcess->executeNextInstruction(memoryManager.get());
                 instructionsExecuted++;
-                /////////////////////////////////////////DELAY FOR TESTING/////////////////////////////////////////////////
-                std::this_thread::sleep_for(std::chrono::seconds(5));
+                
+                memoryManager->incrementCpuTicks();
+                
                 if (currentProcess->isComplete()) {
                     break;
                 }
@@ -188,6 +189,7 @@ void Scheduler::coreWorkerThread(int coreId) {
                 std::this_thread::yield();
             }
         } else {
+            memoryManager->incrementIdleTicks();
             std::unique_lock<std::mutex> lock(processMutex);
             processCV.wait_for(lock, std::chrono::milliseconds(50));
         }

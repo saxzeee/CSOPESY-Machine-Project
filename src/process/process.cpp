@@ -1,5 +1,6 @@
 #include "process.h"
 #include "../utils/utils.h"
+#include "../memory/memory_manager.h"
 #include <chrono>
 #include <random>
 #include <sstream>
@@ -228,6 +229,50 @@ std::string Process::executeNextInstruction() {
     pendingInstructions.pop();
     
     std::string timestamp = Utils::getCurrentTimestamp();
+    std::string result = processInstruction(instruction);
+    std::string logEntry = "(" + timestamp + ") Core:" + std::to_string(coreAssignment) + " " + instruction;
+    
+    if (!result.empty()) {
+        logEntry += " -> " + result;
+    }
+    
+    instructionHistory.push_back(logEntry);
+    executedInstructions++;
+    remainingTime--;
+    
+    if (responseTime == -1) {
+        responseTime = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::high_resolution_clock::now().time_since_epoch()).count() - arrivalTime;
+    }
+    
+    return logEntry;
+}
+
+std::string Process::executeNextInstruction(MemoryManager* memoryManager) {
+    if (pendingInstructions.empty()) {
+        return "";
+    }
+    
+    std::string instruction = pendingInstructions.front();
+    pendingInstructions.pop();
+    
+    std::string timestamp = Utils::getCurrentTimestamp();
+    
+    if (memoryManager && allocatedMemory > 0) {
+        uint32_t simulatedAddress = (executedInstructions * 4) % allocatedMemory;
+        memoryManager->accessMemory(pid, simulatedAddress);
+        
+        if (executedInstructions % 3 == 0) {
+            uint32_t writeAddress = (executedInstructions * 8) % allocatedMemory;
+            memoryManager->writeMemory(pid, writeAddress, static_cast<uint16_t>(executedInstructions & 0xFFFF));
+        }
+        
+        if (executedInstructions % 5 == 0) {
+            uint32_t readAddress = (executedInstructions * 12) % allocatedMemory;
+            memoryManager->readMemory(pid, readAddress);
+        }
+    }
+    
     std::string result = processInstruction(instruction);
     std::string logEntry = "(" + timestamp + ") Core:" + std::to_string(coreAssignment) + " " + instruction;
     

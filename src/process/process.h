@@ -50,6 +50,7 @@ public:
     void generateInstructions(int count);
     void setCustomInstructions(const std::vector<std::string>& instructions);
     std::string executeNextInstruction();
+    std::string executeNextInstruction(class MemoryManager* memoryManager);
     bool isComplete() const;
     void updateMetrics();
     std::string getStateString() const;
