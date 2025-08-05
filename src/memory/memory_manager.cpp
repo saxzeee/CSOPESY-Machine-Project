@@ -492,14 +492,31 @@ size_t MemoryManager::getUsedMemory() const {
 }
 
 void MemoryManager::generateMemoryReport(const std::vector<std::shared_ptr<Process>>& runningProcesses, int numCpu) {
-    std::lock_guard<std::mutex> lock(memoryMutex);
+    size_t physicalMemoryUsed = 0;
+    size_t usedFrames = 0;
     
-    size_t physicalMemoryUsed = getUsedMemory();
+    for (size_t i = 0; i < frameTable.size(); ++i) {
+        if (frameTable[i].occupied) {
+            usedFrames++;
+        }
+    }
+    physicalMemoryUsed = usedFrames * memoryPerFrame;
     
-    // Calculate total allocated memory from all processes still in memory map
     size_t totalAllocatedMemory = 0;
     for (const auto& pair : processMemoryMap) {
-        totalAllocatedMemory += pair.second.allocatedMemory;
+        bool isActiveProcess = false;
+        for (const auto& process : runningProcesses) {
+            if (process != nullptr && process->name == pair.first) {
+                if (process->state != ProcessState::TERMINATED) {
+                    isActiveProcess = true;
+                    break;
+                }
+            }
+        }
+        
+        if (isActiveProcess) {
+            totalAllocatedMemory += pair.second.allocatedMemory;
+        }
     }
     
     int busyCores = 0;
@@ -508,9 +525,7 @@ void MemoryManager::generateMemoryReport(const std::vector<std::shared_ptr<Proce
     }
     
     int totalCores = numCpu;
-    int coresAvailable = totalCores - busyCores;
     double cpuUtilization = (static_cast<double>(busyCores) / totalCores) * 100.0;
-
     double memoryUtilization = (static_cast<double>(totalAllocatedMemory) / maxOverallMemory) * 100.0;
     
     std::cout << "==========================================" << std::endl;
@@ -519,24 +534,47 @@ void MemoryManager::generateMemoryReport(const std::vector<std::shared_ptr<Proce
     std::cout << "CPU-Util: " << std::fixed << std::setprecision(1) << cpuUtilization << "%" << std::endl;
     std::cout << "Memory-Util: " << std::fixed << std::setprecision(1) << memoryUtilization << "%" << std::endl;
     std::cout << "Memory: " << totalAllocatedMemory << " / " << maxOverallMemory << " bytes" << std::endl;
-    //std::cout << "Physical Memory: " << physicalMemoryUsed << " / " << maxOverallMemory << " bytes" << std::endl;
     std::cout << "==========================================" << std::endl;
     std::cout << "Running processes and memory usage:" << std::endl;
     std::cout << "------------------------------------------" << std::endl;
     
-    // Show all processes that still have memory allocated
+    bool hasActiveProcesses = false;
     for (const auto& pair : processMemoryMap) {
-        std::cout << std::left << std::setw(20) << pair.first 
-                  << std::right << std::setw(10) << pair.second.allocatedMemory << " bytes" << std::endl;
+        bool isActiveProcess = false;
+        for (const auto& process : runningProcesses) {
+            if (process != nullptr && process->name == pair.first) {
+                if (process->state != ProcessState::TERMINATED) {
+                    isActiveProcess = true;
+                    break;
+                }
+            }
+        }
+        
+        if (isActiveProcess) {
+            std::cout << std::left << std::setw(20) << pair.first 
+                      << std::right << std::setw(10) << pair.second.allocatedMemory << " bytes" << std::endl;
+            hasActiveProcesses = true;
+        }
+    }
+    
+    if (!hasActiveProcesses) {
+        std::cout << "No active processes found." << std::endl;
     }
     
     std::cout << "------------------------------------------" << std::endl;
 }
 
 void MemoryManager::generateVmstatReport() {
-    std::lock_guard<std::mutex> lock(memoryMutex);
+    size_t physicalMemoryUsed = 0;
+    size_t usedFrames = 0;
     
-    size_t physicalMemoryUsed = getUsedMemory();
+    for (size_t i = 0; i < frameTable.size(); ++i) {
+        if (frameTable[i].occupied) {
+            usedFrames++;
+        }
+    }
+    physicalMemoryUsed = usedFrames * memoryPerFrame;
+    
     size_t freeMemory = maxOverallMemory - physicalMemoryUsed;
     
     std::cout << "Total memory: " << maxOverallMemory << " bytes" << std::endl;

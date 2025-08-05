@@ -1,11 +1,32 @@
 #include "command_processor.h"
 #include "../utils/utils.h"
+#include "../config/config.h"
 #include <iostream>
 #include <sstream>
 #include <algorithm>
 #include <iomanip>
+#include <fstream>
 
 CommandProcessor::CommandProcessor() {
+    std::ifstream configFile("config.txt");
+    if (configFile.good()) {
+        configFile.close();
+        std::cout << "Found config.txt - Auto-initializing system..." << std::endl;
+        
+        try {
+            auto config = std::make_unique<SystemConfig>();
+            if (config->loadFromFile("config.txt")) {
+                scheduler = std::make_unique<Scheduler>(std::move(config));
+                initialized = true;
+                std::cout << "System auto-initialized successfully!" << std::endl;
+            } else {
+                std::cout << "Auto-initialization failed. Please run 'initialize' manually." << std::endl;
+            }
+        } catch (const std::exception& e) {
+            std::cout << "ERROR during auto-initialization: " << e.what() << std::endl;
+        }
+    }
+    
     commands["initialize"] = [this](const std::vector<std::string>& args) {
         std::string configFile = "config.txt";
         if (args.size() > 1) {
@@ -30,10 +51,24 @@ CommandProcessor::CommandProcessor() {
             return;
         }
         
-        scheduler->getMemoryManager()->generateMemoryReport(
-            scheduler->getRunningProcesses(), 
-            scheduler->getConfig()->numCpu
-        );
+        if (!scheduler) {
+            std::cout << "Error: Scheduler is null" << std::endl;
+            return;
+        }
+        
+        if (!scheduler->getMemoryManager()) {
+            std::cout << "Error: Memory manager is null" << std::endl;
+            return;
+        }
+        
+        try {
+            scheduler->getMemoryManager()->generateMemoryReport(
+                scheduler->getRunningProcesses(), 
+                scheduler->getConfig()->numCpu
+            );
+        } catch (const std::exception& e) {
+            std::cout << "Error generating memory report: " << e.what() << std::endl;
+        }
     };
     
     commands["vmstat"] = [this](const std::vector<std::string>& args) {
@@ -42,7 +77,21 @@ CommandProcessor::CommandProcessor() {
             return;
         }
         
-        scheduler->getMemoryManager()->generateVmstatReport();
+        if (!scheduler) {
+            std::cout << "Error: Scheduler is null" << std::endl;
+            return;
+        }
+        
+        if (!scheduler->getMemoryManager()) {
+            std::cout << "Error: Memory manager is null" << std::endl;
+            return;
+        }
+        
+        try {
+            scheduler->getMemoryManager()->generateVmstatReport();
+        } catch (const std::exception& e) {
+            std::cout << "Error generating vmstat report: " << e.what() << std::endl;
+        }
     };
     
     commands["scheduler-start"] = [this](const std::vector<std::string>& args) {
@@ -130,14 +179,6 @@ CommandProcessor::CommandProcessor() {
                 std::cout << "Memory: " << process->allocatedMemory << " bytes" << std::endl;
                 Utils::resetTextColor();
                 
-                // if (!process->instructionHistory.empty()) {
-                //     std::cout << "\n--- Process Logs ---" << std::endl;
-                //     int start = std::max(0, static_cast<int>(process->instructionHistory.size()) - 10);
-                //     for (int i = start; i < process->instructionHistory.size(); ++i) {
-                //         std::cout << process->instructionHistory[i] << std::endl;
-                //     }
-                // }
-                
                 std::string input;
                 while (true) {
                     std::cout << "\n>> ";
@@ -210,13 +251,6 @@ CommandProcessor::CommandProcessor() {
                 std::cout << "Instruction: Line " << process->executedInstructions << " / " << process->totalInstructions << std::endl;
                 std::cout << "Created at: " << process->creationTimestamp << std::endl;
                 Utils::resetTextColor();
-                // if (!process->instructionHistory.empty()) {
-                //     std::cout << "\n--- Process Logs ---" << std::endl;
-                //     int start = std::max(0, static_cast<int>(process->instructionHistory.size()) - 10);
-                //     for (int i = start; i < process->instructionHistory.size(); ++i) {
-                //         std::cout << process->instructionHistory[i] << std::endl;
-                //     }
-                // }
                 std::string input;
                 while (true) {
                     std::cout << "\n>> ";
@@ -265,14 +299,6 @@ CommandProcessor::CommandProcessor() {
                 std::cout << "Instruction: Line " << process->executedInstructions << " / " << process->totalInstructions << std::endl;
                 std::cout << "Created at: " << process->creationTimestamp << std::endl;
                 Utils::resetTextColor();
-                
-                // if (!process->instructionHistory.empty()) {
-                //     std::cout << "\n--- Process Logs ---" << std::endl;
-                //     int start = std::max(0, static_cast<int>(process->instructionHistory.size()) - 10);
-                //     for (int i = start; i < process->instructionHistory.size(); ++i) {
-                //         std::cout << process->instructionHistory[i] << std::endl;
-                //     }
-                // }
                 
                 std::string input;
                 while (true) {
@@ -331,14 +357,6 @@ CommandProcessor::CommandProcessor() {
             std::cout << "Instruction: Line " << process->executedInstructions << " / " << process->totalInstructions << std::endl;
             std::cout << "Created at: " << process->creationTimestamp << std::endl;
             Utils::resetTextColor();
-            
-            // if (!process->instructionHistory.empty()) {
-            //     std::cout << "\n--- Process Logs ---" << std::endl;
-            //     int start = std::max(0, static_cast<int>(process->instructionHistory.size()) - 10);
-            //     for (int i = start; i < process->instructionHistory.size(); ++i) {
-            //         std::cout << process->instructionHistory[i] << std::endl;
-            //     }
-            // }
             
             std::string input;
             while (true) {
@@ -497,7 +515,6 @@ void CommandProcessor::run() {
         if (input.empty()) continue;
         
         std::string lowerInput = input;
-        //std::transform(lowerInput.begin(), lowerInput.end(), lowerInput.begin(), ::tolower);
         
         if (lowerInput == "exit") {
             if (scheduler && scheduler->isSystemRunning()) {

@@ -309,9 +309,7 @@ std::string Process::processInstruction(const std::string& instruction) {
     } else if (upperInst.find("WRITE ") == 0 || upperInst.find("WRITE\t") == 0) {
         return processWrite(instruction);
     }
-    // space instead of () in commands
     else if (upperInst.find("DECLARE ") == 0) {
-        // Convert to parenthesis style for handler
         std::string params = instruction.substr(8);
         return processDeclare("DECLARE(" + params + ")");
     } else if (upperInst.find("ADD ") == 0) {
