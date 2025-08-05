@@ -527,19 +527,26 @@ void MemoryManager::generateMemoryReport(const std::vector<std::shared_ptr<Proce
     int totalCores = numCpu;
     int coresAvailable = totalCores - busyCores;
     double cpuUtilization = (static_cast<double>(busyCores) / totalCores) * 100.0;
+    double memoryUtilization = (static_cast<double>(physicalMemoryUsed) / maxOverallMemory) * 100.0;
     
     std::cout << "==========================================" << std::endl;
     std::cout << "| CSOPESY Process and Memory Monitor     |" << std::endl;
     std::cout << "==========================================" << std::endl;
     std::cout << "CPU-Util: " << std::fixed << std::setprecision(1) << cpuUtilization << "%" << std::endl;
+    std::cout << "Memory-Util: " << std::fixed << std::setprecision(1) << memoryUtilization << "%" << std::endl;
     std::cout << "Memory: " << physicalMemoryUsed << " / " << maxOverallMemory << " bytes" << std::endl;
     std::cout << "==========================================" << std::endl;
     std::cout << "Running processes and memory usage:" << std::endl;
     std::cout << "------------------------------------------" << std::endl;
     
-    for (const auto& pair : processMemoryMap) {
-        std::cout << std::left << std::setw(20) << pair.first 
-                  << std::right << std::setw(10) << pair.second.allocatedMemory << " bytes" << std::endl;
+    for (const auto& process : runningProcesses) {
+        if (process != nullptr) {
+            auto it = processMemoryMap.find(process->pid);
+            if (it != processMemoryMap.end()) {
+                std::cout << std::left << std::setw(20) << process->pid 
+                          << std::right << std::setw(10) << it->second.allocatedMemory << " bytes" << std::endl;
+            }
+        }
     }
     
     std::cout << "------------------------------------------" << std::endl;
