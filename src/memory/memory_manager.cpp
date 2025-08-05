@@ -1,5 +1,6 @@
 #include "memory_manager.h"
 #include "../utils/utils.h"
+#include "../process/process.h"
 #include <iostream>
 #include <iomanip>
 #include <algorithm>
@@ -55,6 +56,8 @@ bool MemoryManager::allocateMemory(const std::string& processId, size_t required
     
     processMemoryMap[processId] = memInfo;
     initializeProcessPages(processId, requiredMemory);
+    
+    handlePageFaultInternal(processId, 0);
     
     return true;
 }
@@ -140,7 +143,6 @@ bool MemoryManager::handlePageFaultInternal(const std::string& processId, uint32
     entry.referenced = true;
     
     pagesPagedIn++;
-    pageFaults++;
     
     return true;
 }
@@ -517,7 +519,6 @@ void MemoryManager::generateMemoryReport(const std::vector<std::shared_ptr<Proce
     size_t physicalMemoryUsed = getUsedMemory();
     size_t freeMemory = maxOverallMemory - physicalMemoryUsed;
     
-    // Calculate CPU utilization using the same logic as the scheduler
     int busyCores = 0;
     for (const auto& process : runningProcesses) {
         if (process != nullptr) busyCores++;
@@ -558,7 +559,6 @@ void MemoryManager::generateVmstatReport() {
     std::cout << "Total CPU ticks: " << totalCpuTicks << std::endl;
     std::cout << "Num paged in: " << pagesPagedIn << std::endl;
     std::cout << "Num paged out: " << pagesPagedOut << std::endl;
-    std::cout << "Page faults: " << pageFaults << std::endl;
 }
 
 bool MemoryManager::hasMemoryViolation(const std::string& processId) const {

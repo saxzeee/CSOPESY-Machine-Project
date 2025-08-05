@@ -142,10 +142,8 @@ void Process::generateInstructions(int count) {
             instruction = "SLEEP(" + std::to_string(ticks) + ")";
             
         } else if (instructionType == "READ") {
-            // Generate READ instruction with valid memory address
             std::uniform_int_distribution<> addrDist(0, std::max(64, static_cast<int>(allocatedMemory - 2)));
             uint32_t address = addrDist(gen);
-            // Align to 2-byte boundary for proper memory access
             address = (address / 2) * 2;
             
             std::ostringstream oss;
@@ -153,10 +151,8 @@ void Process::generateInstructions(int count) {
             instruction = oss.str();
             
         } else if (instructionType == "WRITE") {
-            // Generate WRITE instruction with valid memory address and value
             std::uniform_int_distribution<> addrDist(0, std::max(64, static_cast<int>(allocatedMemory - 2)));
             uint32_t address = addrDist(gen);
-            // Align to 2-byte boundary for proper memory access
             address = (address / 2) * 2;
             
             uint16_t value = static_cast<uint16_t>(valueDist(gen));

@@ -8,6 +8,7 @@
 #include <mutex>
 #include <fstream>
 #include <set>
+#include <memory>
 
 struct PageTableEntry {
     bool valid = false;
