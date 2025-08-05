@@ -511,6 +511,39 @@ void MemoryManager::generateMemoryReport() {
     std::cout << "------------------------------------------" << std::endl;
 }
 
+void MemoryManager::generateMemoryReport(const std::vector<std::shared_ptr<Process>>& runningProcesses, int numCpu) {
+    std::lock_guard<std::mutex> lock(memoryMutex);
+    
+    size_t physicalMemoryUsed = getUsedMemory();
+    size_t freeMemory = maxOverallMemory - physicalMemoryUsed;
+    
+    // Calculate CPU utilization using the same logic as the scheduler
+    int busyCores = 0;
+    for (const auto& process : runningProcesses) {
+        if (process != nullptr) busyCores++;
+    }
+    
+    int totalCores = numCpu;
+    int coresAvailable = totalCores - busyCores;
+    double cpuUtilization = (static_cast<double>(busyCores) / totalCores) * 100.0;
+    
+    std::cout << "==========================================" << std::endl;
+    std::cout << "| CSOPESY Process and Memory Monitor     |" << std::endl;
+    std::cout << "==========================================" << std::endl;
+    std::cout << "CPU-Util: " << std::fixed << std::setprecision(1) << cpuUtilization << "%" << std::endl;
+    std::cout << "Memory: " << physicalMemoryUsed << " / " << maxOverallMemory << " bytes" << std::endl;
+    std::cout << "==========================================" << std::endl;
+    std::cout << "Running processes and memory usage:" << std::endl;
+    std::cout << "------------------------------------------" << std::endl;
+    
+    for (const auto& pair : processMemoryMap) {
+        std::cout << std::left << std::setw(20) << pair.first 
+                  << std::right << std::setw(10) << pair.second.allocatedMemory << " bytes" << std::endl;
+    }
+    
+    std::cout << "------------------------------------------" << std::endl;
+}
+
 void MemoryManager::generateVmstatReport() {
     std::lock_guard<std::mutex> lock(memoryMutex);
     

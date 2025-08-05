@@ -62,6 +62,7 @@ public:
     
     MemoryManager* getMemoryManager() const { return memoryManager.get(); }
     const SystemConfig* getConfig() const { return config.get(); }
+    const std::vector<std::shared_ptr<Process>>& getRunningProcesses() const { return runningProcesses; }
 };
 
 #endif
