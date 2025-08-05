@@ -258,6 +258,7 @@ void Scheduler::testModeProcessCreator() {
 }
 
 void Scheduler::handleProcessCompletion(std::shared_ptr<Process> process) {
+    process->executedInstructions = process->totalInstructions;
     process->state = ProcessState::TERMINATED;
     process->updateMetrics();
     process->coreAssignment = -1;

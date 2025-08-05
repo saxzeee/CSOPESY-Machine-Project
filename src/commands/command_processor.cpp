@@ -195,11 +195,57 @@ CommandProcessor::CommandProcessor() {
                 return;
             }
             
+            auto process = scheduler->findProcess(processName);
             if (!scheduler->createProcess(processName, memorySize, instructions)) {
                 return;
             }
-            
-            std::cout << "Process " << processName << " created successfully with " << memorySize << " bytes of memory." << std::endl;
+            process = scheduler->findProcess(processName);
+            if (process) {
+                Utils::clearScreen();
+                Utils::setTextColor(36); 
+                std::cout << "Process name: " << process->name << std::endl;
+                std::cout << "Instruction: Line " << process->executedInstructions << " / " << process->totalInstructions << std::endl;
+                std::cout << "Created at: " << process->creationTimestamp << std::endl;
+                Utils::resetTextColor();
+                if (!process->instructionHistory.empty()) {
+                    std::cout << "\n--- Process Logs ---" << std::endl;
+                    int start = std::max(0, static_cast<int>(process->instructionHistory.size()) - 10);
+                    for (int i = start; i < process->instructionHistory.size(); ++i) {
+                        std::cout << process->instructionHistory[i] << std::endl;
+                    }
+                }
+                std::string input;
+                while (true) {
+                    std::cout << "\n>> ";
+                    std::getline(std::cin, input);
+                    if (input == "exit") {
+                        displayHeader();
+                        break;
+                    } else if (input == "process-smi") {
+                        std::cout << "\nProcess name: " << process->name << std::endl;
+                        std::cout << "ID: " << process->pid << std::endl;
+                        std::cout << "Logs:" << std::endl;
+                        if (!process->instructionHistory.empty()) {
+                            for (const auto& log : process->instructionHistory) {
+                                std::cout << log << std::endl;
+                            }
+                        } else {
+                            std::cout << "No logs found for this process." << std::endl;
+                        }
+                        std::cout << std::endl;
+                        if (process->state == ProcessState::TERMINATED) {
+                            std::cout << "Finished!" << std::endl;
+                        } else {
+                            std::cout << "Current instruction line: " << process->executedInstructions << std::endl;
+                            std::cout << "Lines of code: " << process->totalInstructions << std::endl;
+                        }
+                    } else {
+                        std::cout << "Available commands: process-smi, exit" << std::endl;
+                    }
+                }
+            } else {
+                std::cout << "Process " << processName << " created successfully with " << memorySize << " bytes of memory." << std::endl;
+            }
         } else if (args.size() >= 3 && args[1] == "-s") {
             std::string processName = args[2];
             
