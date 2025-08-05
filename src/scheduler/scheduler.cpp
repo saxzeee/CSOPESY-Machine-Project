@@ -148,7 +148,7 @@ void Scheduler::coreWorkerThread(int coreId) {
             while (instructionsExecuted < instructionsPerChunk && !currentProcess->isComplete()) {
                 std::string logEntry = currentProcess->executeNextInstruction(memoryManager.get());
                 instructionsExecuted++;
-                
+                std::this_thread::sleep_for(std::chrono::milliseconds(5000));
                 memoryManager->incrementCpuTicks();
                 
                 if (currentProcess->isComplete()) {
