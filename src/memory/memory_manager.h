@@ -94,6 +94,7 @@ public:
     
     size_t getTotalMemory() const { return maxOverallMemory; }
     size_t getUsedMemory() const;
+    size_t getVirtualMemoryUsed() const;
     size_t getFreeMemory() const { return maxOverallMemory - getUsedMemory(); }
     
     size_t getMinMemoryPerProcess() const { return minMemoryPerProcess; }

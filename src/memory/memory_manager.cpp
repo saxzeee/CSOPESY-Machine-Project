@@ -510,6 +510,7 @@ void MemoryManager::generateMemoryReport(const std::vector<std::shared_ptr<Proce
     int totalCores = numCpu;
     int coresAvailable = totalCores - busyCores;
     double cpuUtilization = (static_cast<double>(busyCores) / totalCores) * 100.0;
+
     double memoryUtilization = (static_cast<double>(totalAllocatedMemory) / maxOverallMemory) * 100.0;
     
     std::cout << "==========================================" << std::endl;
