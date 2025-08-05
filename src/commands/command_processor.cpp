@@ -207,13 +207,13 @@ CommandProcessor::CommandProcessor() {
                 std::cout << "Instruction: Line " << process->executedInstructions << " / " << process->totalInstructions << std::endl;
                 std::cout << "Created at: " << process->creationTimestamp << std::endl;
                 Utils::resetTextColor();
-                if (!process->instructionHistory.empty()) {
-                    std::cout << "\n--- Process Logs ---" << std::endl;
-                    int start = std::max(0, static_cast<int>(process->instructionHistory.size()) - 10);
-                    for (int i = start; i < process->instructionHistory.size(); ++i) {
-                        std::cout << process->instructionHistory[i] << std::endl;
-                    }
-                }
+                // if (!process->instructionHistory.empty()) {
+                //     std::cout << "\n--- Process Logs ---" << std::endl;
+                //     int start = std::max(0, static_cast<int>(process->instructionHistory.size()) - 10);
+                //     for (int i = start; i < process->instructionHistory.size(); ++i) {
+                //         std::cout << process->instructionHistory[i] << std::endl;
+                //     }
+                // }
                 std::string input;
                 while (true) {
                     std::cout << "\n>> ";
