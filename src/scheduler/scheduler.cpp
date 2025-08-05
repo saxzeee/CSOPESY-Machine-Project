@@ -37,6 +37,9 @@ bool Scheduler::start() {
     shouldStop.store(false);
     isRunning.store(true);
     
+    // Enable dummy process generation by default when starting
+    dummyProcessGenerationEnabled.store(true);
+    
     coreWorkers.clear();
     for (int i = 0; i < config->numCpu; ++i) {
         coreWorkers.emplace_back(&Scheduler::coreWorkerThread, this, i);
@@ -45,6 +48,7 @@ bool Scheduler::start() {
     coreWorkers.emplace_back(&Scheduler::processCreatorThread, this);
     
     std::cout << "Scheduler started with " << config->numCpu << " CPU cores." << std::endl;
+    std::cout << "Dummy process generation enabled." << std::endl;
     return true;
 }
 
@@ -56,6 +60,10 @@ bool Scheduler::startTestMode() {
     
     shouldStop.store(false);
     isRunning.store(true);
+    
+    // Test mode doesn't need dummy process generation since it has its own creator
+    // But we'll enable it for consistency
+    dummyProcessGenerationEnabled.store(true);
     
     coreWorkers.clear();
     for (int i = 0; i < config->numCpu; ++i) {
@@ -93,25 +101,43 @@ void Scheduler::coreWorkerThread(int coreId) {
         std::shared_ptr<Process> currentProcess = nullptr;
         
         {
+            // Only use global lock for strict FCFS scheduling
             static std::mutex fcfsGlobalLock;
-            std::unique_lock<std::mutex> globalLock(fcfsGlobalLock);
+            std::unique_ptr<std::unique_lock<std::mutex>> globalLock = nullptr;
+            
+            // For FCFS, we need strict ordering, so use global lock
+            // For other schedulers, allow parallel access to ready queue
+            if (config->scheduler == "fcfs") {
+                globalLock = std::make_unique<std::unique_lock<std::mutex>>(fcfsGlobalLock);
+            }
+            
             std::unique_lock<std::mutex> lock(processMutex);
 
             currentProcess = runningProcesses[coreId];
 
             if (!currentProcess && !readyQueue.empty()) {
-                int minArrival = INT_MAX;
-                for (const auto& proc : runningProcesses) {
-                    if (proc && !proc->isComplete() && proc->arrivalTime < minArrival) {
-                        minArrival = proc->arrivalTime;
+                if (config->scheduler == "fcfs") {
+                    // FCFS: strict arrival time ordering
+                    int minArrival = INT_MAX;
+                    for (const auto& proc : runningProcesses) {
+                        if (proc && !proc->isComplete() && proc->arrivalTime < minArrival) {
+                            minArrival = proc->arrivalTime;
+                        }
                     }
-                }
-                auto it = std::min_element(readyQueue.begin(), readyQueue.end(), [](const std::shared_ptr<Process>& a, const std::shared_ptr<Process>& b) {
-                    return a->arrivalTime < b->arrivalTime;
-                });
-                if ((*it)->arrivalTime <= minArrival) {
-                    currentProcess = *it;
-                    readyQueue.erase(it);
+                    auto it = std::min_element(readyQueue.begin(), readyQueue.end(), [](const std::shared_ptr<Process>& a, const std::shared_ptr<Process>& b) {
+                        return a->arrivalTime < b->arrivalTime;
+                    });
+                    if ((*it)->arrivalTime <= minArrival) {
+                        currentProcess = *it;
+                        readyQueue.erase(it);
+                        runningProcesses[coreId] = currentProcess;
+                        currentProcess->state = ProcessState::RUNNING;
+                        currentProcess->coreAssignment = coreId;
+                    }
+                } else {
+                    // For RR and other schedulers: just pick the first available process
+                    currentProcess = readyQueue.front();
+                    readyQueue.erase(readyQueue.begin());
                     runningProcesses[coreId] = currentProcess;
                     currentProcess->state = ProcessState::RUNNING;
                     currentProcess->coreAssignment = coreId;
@@ -210,14 +236,30 @@ void Scheduler::processCreatorThread() {
                 queueSize = readyQueue.size();
             }
             
-            int processesToCreate = 1; 
+            int totalWorkload = activeCores + queueSize;
+            int availableCores = config->numCpu - activeCores;
             
-            if (config->delayPerExec <= 5) {
-                int totalWorkload = activeCores + queueSize;
-                int desiredWorkload = config->numCpu + 5; 
+            // Create processes to fill available cores plus some queue
+            int processesToCreate = 0;
+            
+            if (availableCores > 0) {
+                // Always try to fill all available cores
+                processesToCreate = availableCores;
                 
+                // Add some extra processes for queue (but not too many)
+                if (queueSize < 3) {
+                    processesToCreate += (3 - queueSize);
+                }
+            } else if (queueSize < 2) {
+                // Even if all cores busy, maintain small queue
+                processesToCreate = 2 - queueSize;
+            }
+            
+            // Additional logic for fast execution modes
+            if (config->delayPerExec <= 5) {
+                int desiredWorkload = config->numCpu + 5; 
                 if (totalWorkload < desiredWorkload) {
-                    processesToCreate = desiredWorkload - totalWorkload;
+                    processesToCreate = std::max(processesToCreate, desiredWorkload - totalWorkload);
                 }
                 
                 if (config->delayPerExec == 0 && totalWorkload < config->numCpu * 2) {
@@ -226,7 +268,10 @@ void Scheduler::processCreatorThread() {
             }
             
             for (int i = 0; i < processesToCreate; ++i) {
-                createProcess();
+                if (!createProcess()) {
+                    // If process creation fails (e.g., memory), stop trying
+                    break;
+                }
             }
         }
         

@@ -33,7 +33,6 @@ MemoryManager::~MemoryManager() {
 
 bool MemoryManager::isValidMemorySize(size_t size) const {
     if (size < minMemoryPerProcess || size > maxMemoryPerProcess) return false;
-    if (size < 64 || size > 65536) return false;
     
     return (size & (size - 1)) == 0;
 }
