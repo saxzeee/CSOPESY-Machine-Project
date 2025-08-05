@@ -148,7 +148,7 @@ void Scheduler::coreWorkerThread(int coreId) {
             while (instructionsExecuted < instructionsPerChunk && !currentProcess->isComplete()) {
                 std::string logEntry = currentProcess->executeNextInstruction(memoryManager.get());
                 instructionsExecuted++;
-                std::this_thread::sleep_for(std::chrono::milliseconds(5000));
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));///////////////////////////////////////////////////////////////////////////
                 memoryManager->incrementCpuTicks();
                 
                 if (currentProcess->isComplete()) {
@@ -308,11 +308,19 @@ bool Scheduler::createProcess(const std::string& name) {
     std::uniform_int_distribution<> sizeDist(0, validMemorySizes.size() - 1);
     size_t memorySize = validMemorySizes[sizeDist(gen)];
     
+    static std::mutex creationLock;
+    static int strictArrivalCounter = 0;
+    std::lock_guard<std::mutex> creationGuard(creationLock);
+    auto process = std::make_shared<Process>(processName, memorySize);
+    process->arrivalTime = ++strictArrivalCounter;
+    
+    // Allocate memory using the actual process PID, not the process name
     bool allocated = false;
-    if (!memoryManager->allocateMemory(processName, memorySize)) {
+    if (!memoryManager->allocateMemory(process->pid, memorySize)) {
         for (auto it = validMemorySizes.rbegin(); it != validMemorySizes.rend(); ++it) {
-            if (memoryManager->allocateMemory(processName, *it)) {
+            if (memoryManager->allocateMemory(process->pid, *it)) {
                 memorySize = *it;
+                process->allocatedMemory = memorySize;
                 allocated = true;
                 break;
             }
@@ -323,11 +331,6 @@ bool Scheduler::createProcess(const std::string& name) {
         }
     }
     
-    static std::mutex creationLock;
-    static int strictArrivalCounter = 0;
-    std::lock_guard<std::mutex> creationGuard(creationLock);
-    auto process = std::make_shared<Process>(processName, memorySize);
-    process->arrivalTime = ++strictArrivalCounter;
     int baseInstructionCount = Utils::generateRandomInt(
         config->minInstructions, config->maxInstructions);
     process->generateInstructions(baseInstructionCount);
@@ -347,16 +350,17 @@ bool Scheduler::createProcess(const std::string& name) {
 bool Scheduler::createProcess(const std::string& name, size_t memorySize) {
     ensureSchedulerStarted();
     
-    if (!memoryManager->allocateMemory(name, memorySize)) {
-        std::cout << "Invalid memory allocation" << std::endl;
-        return false;
-    }
-    
     static std::mutex creationLock;
     static int strictArrivalCounter = 0;
     std::lock_guard<std::mutex> creationGuard(creationLock);
     auto process = std::make_shared<Process>(name, memorySize);
     process->arrivalTime = ++strictArrivalCounter;
+    
+    if (!memoryManager->allocateMemory(process->pid, memorySize)) {
+        std::cout << "Invalid memory allocation" << std::endl;
+        return false;
+    }
+    
     int baseInstructionCount = Utils::generateRandomInt(
         config->minInstructions, config->maxInstructions);
     process->generateInstructions(baseInstructionCount);
@@ -381,16 +385,17 @@ bool Scheduler::createProcess(const std::string& name, size_t memorySize, const 
         return false;
     }
     
-    if (!memoryManager->allocateMemory(name, memorySize)) {
-        std::cout << "Invalid memory allocation" << std::endl;
-        return false;
-    }
-    
     static std::mutex creationLock;
     static int strictArrivalCounter = 0;
     std::lock_guard<std::mutex> creationGuard(creationLock);
     auto process = std::make_shared<Process>(name, memorySize, instructions);
     process->arrivalTime = ++strictArrivalCounter;
+    
+    if (!memoryManager->allocateMemory(process->pid, memorySize)) {
+        std::cout << "Invalid memory allocation" << std::endl;
+        return false;
+    }
+    
     process->state = ProcessState::READY;
     {
         std::lock_guard<std::mutex> lock(processMutex);
