@@ -17,10 +17,10 @@ class Scheduler {
 private:
     std::unique_ptr<SystemConfig> config;
     std::unique_ptr<MemoryManager> memoryManager;
-    
+
     std::vector<std::shared_ptr<Process>> allProcesses;
-    std::queue<std::shared_ptr<Process>> readyQueue;
-    std::vector<std::shared_ptr<Process>> runningProcesses; 
+    std::vector<std::shared_ptr<Process>> readyQueue;
+    std::vector<std::shared_ptr<Process>> runningProcesses;
     std::vector<std::shared_ptr<Process>> terminatedProcesses;
     
     std::vector<std::thread> coreWorkers;

@@ -93,17 +93,29 @@ void Scheduler::coreWorkerThread(int coreId) {
         std::shared_ptr<Process> currentProcess = nullptr;
         
         {
+            static std::mutex fcfsGlobalLock;
+            std::unique_lock<std::mutex> globalLock(fcfsGlobalLock);
             std::unique_lock<std::mutex> lock(processMutex);
-            
+
             currentProcess = runningProcesses[coreId];
-            
+
             if (!currentProcess && !readyQueue.empty()) {
-                currentProcess = readyQueue.front();
-                readyQueue.pop();
-                
-                runningProcesses[coreId] = currentProcess;
-                currentProcess->state = ProcessState::RUNNING;
-                currentProcess->coreAssignment = coreId;
+                int minArrival = INT_MAX;
+                for (const auto& proc : runningProcesses) {
+                    if (proc && !proc->isComplete() && proc->arrivalTime < minArrival) {
+                        minArrival = proc->arrivalTime;
+                    }
+                }
+                auto it = std::min_element(readyQueue.begin(), readyQueue.end(), [](const std::shared_ptr<Process>& a, const std::shared_ptr<Process>& b) {
+                    return a->arrivalTime < b->arrivalTime;
+                });
+                if ((*it)->arrivalTime <= minArrival) {
+                    currentProcess = *it;
+                    readyQueue.erase(it);
+                    runningProcesses[coreId] = currentProcess;
+                    currentProcess->state = ProcessState::RUNNING;
+                    currentProcess->coreAssignment = coreId;
+                }
             }
         }
         
@@ -116,7 +128,7 @@ void Scheduler::coreWorkerThread(int coreId) {
                     
                     std::lock_guard<std::mutex> lock(processMutex);
                     currentProcess->coreAssignment = -1;
-                    readyQueue.push(currentProcess);
+                    readyQueue.push_back(currentProcess);
                     runningProcesses[coreId] = nullptr;
                     processCV.notify_one();
                 } else {
@@ -163,7 +175,7 @@ void Scheduler::coreWorkerThread(int coreId) {
                     std::lock_guard<std::mutex> lock(processMutex);
                     currentProcess->state = ProcessState::READY;
                     currentProcess->coreAssignment = -1;
-                    readyQueue.push(currentProcess);
+                    readyQueue.push_back(currentProcess);
                     runningProcesses[coreId] = nullptr;
                     processCV.notify_one();
                 }
@@ -256,7 +268,11 @@ void Scheduler::handleProcessCompletion(std::shared_ptr<Process> process) {
     
     {
         std::lock_guard<std::mutex> lock(processMutex);
-        terminatedProcesses.push_back(process);
+        auto it = std::upper_bound(terminatedProcesses.begin(), terminatedProcesses.end(), process,
+            [](const std::shared_ptr<Process>& a, const std::shared_ptr<Process>& b) {
+                return a->arrivalTime < b->arrivalTime;
+            });
+        terminatedProcesses.insert(it, process);
     }
 }
 
@@ -303,22 +319,24 @@ bool Scheduler::createProcess(const std::string& name) {
         }
     }
     
+    static std::mutex creationLock;
+    static int strictArrivalCounter = 0;
+    std::lock_guard<std::mutex> creationGuard(creationLock);
     auto process = std::make_shared<Process>(processName, memorySize);
-    
+    process->arrivalTime = ++strictArrivalCounter;
     int baseInstructionCount = Utils::generateRandomInt(
         config->minInstructions, config->maxInstructions);
-    
     process->generateInstructions(baseInstructionCount);
     process->state = ProcessState::READY;
-    
     {
         std::lock_guard<std::mutex> lock(processMutex);
         allProcesses.push_back(process);
-        readyQueue.push(process);
+        readyQueue.push_back(process);
+        std::sort(readyQueue.begin(), readyQueue.end(), [](const std::shared_ptr<Process>& a, const std::shared_ptr<Process>& b) {
+            return a->arrivalTime < b->arrivalTime;
+        });
     }
-    
     processCV.notify_one();
-    
     return true;
 }
 
@@ -330,20 +348,23 @@ bool Scheduler::createProcess(const std::string& name, size_t memorySize) {
         return false;
     }
     
+    static std::mutex creationLock;
+    static int strictArrivalCounter = 0;
+    std::lock_guard<std::mutex> creationGuard(creationLock);
     auto process = std::make_shared<Process>(name, memorySize);
-    
+    process->arrivalTime = ++strictArrivalCounter;
     int baseInstructionCount = Utils::generateRandomInt(
         config->minInstructions, config->maxInstructions);
-    
     process->generateInstructions(baseInstructionCount);
     process->state = ProcessState::READY;
-    
     {
         std::lock_guard<std::mutex> lock(processMutex);
         allProcesses.push_back(process);
-        readyQueue.push(process);
+        readyQueue.push_back(process);
+        std::sort(readyQueue.begin(), readyQueue.end(), [](const std::shared_ptr<Process>& a, const std::shared_ptr<Process>& b) {
+            return a->arrivalTime < b->arrivalTime;
+        });
     }
-    
     processCV.notify_one();
     return true;
 }
@@ -361,15 +382,20 @@ bool Scheduler::createProcess(const std::string& name, size_t memorySize, const 
         return false;
     }
     
+    static std::mutex creationLock;
+    static int strictArrivalCounter = 0;
+    std::lock_guard<std::mutex> creationGuard(creationLock);
     auto process = std::make_shared<Process>(name, memorySize, instructions);
+    process->arrivalTime = ++strictArrivalCounter;
     process->state = ProcessState::READY;
-    
     {
         std::lock_guard<std::mutex> lock(processMutex);
         allProcesses.push_back(process);
-        readyQueue.push(process);
+        readyQueue.push_back(process);
+        std::sort(readyQueue.begin(), readyQueue.end(), [](const std::shared_ptr<Process>& a, const std::shared_ptr<Process>& b) {
+            return a->arrivalTime < b->arrivalTime;
+        });
     }
-    
     processCV.notify_one();
     return true;
 }
